@@ -1,0 +1,84 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f6f6f6;
+    color: #222;
+    padding: 20px;
+    max-width: 800px;
+    margin: auto;
+}
+
+h1, h2 {
+    color: #3b3b3b;
+}
+
+form {
+    margin-bottom: 30px;
+}
+
+input, button {
+    padding: 10px;
+    margin: 5px;
+    font-size: 16px;
+}
+
+button {
+    background-color: #007BFF;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+ul {
+    list-style-type: none;
+    padding-left: 0;
+}
+
+li {
+    padding: 8px;
+    margin-bottom: 5px;
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+th {
+    background-color: #f0f0f0;
+}
+/* Zebra striping for better table visibility */
+tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+/* Style for the delete (❌) link */
+td a {
+    color: crimson;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+td a:hover {
+    text-decoration: underline;
+}
+
+/* Slight spacing improvements */
+table, input, button {
+    margin-top: 10px;
+}
+
+ jasurbek_logo.png

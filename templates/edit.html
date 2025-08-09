@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Jasurbek — Edit Item</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <!-- Logo -->
+    <div class="logo-container">
+        <img src="{{ url_for('static', filename='vanta_logo.png') }}" class="logo" alt="Vanta Logo">
+    </div>
+
+    <!-- Title -->
+    <h1>Edit Item 🛠️</h1>
+    <p style="color: gray; font-size: 14px;">Vanta Inventory System</p>
+
+    <!-- Edit Form -->
+    <form method="POST">
+        <input type="text" name="name" placeholder="Item Name" value="{{ item.name }}" required>
+        <input type="number" name="quantity" placeholder="Quantity" value="{{ item.quantity }}" required>
+        <input type="number" name="price" placeholder="Price" step="0.01" value="{{ item.price }}" required>
+        <button type="submit">Update</button>
+    </form>
+
+    <!-- Footer -->
+    <footer style="text-align: center; margin-top: 40px; color: #777;">
+        © 2025 Jasurbek Systems. All rights reserved.
+    </footer>
+
+</body>
+</html>
+
