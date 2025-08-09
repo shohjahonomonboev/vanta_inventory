@@ -6,9 +6,23 @@ import openpyxl
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Secret key for session management
+# ---- Admin accounts (supports multiple) ----
+# Format: "user1:pass1,user2:pass2"
+ADMIN_USERS_ENV = os.environ.get("ADMIN_USERS")
+if ADMIN_USERS_ENV:
+    ADMIN_USERS = dict(pair.split(":", 1) for pair in ADMIN_USERS_ENV.split(","))
+else:
+    ADMIN_USERS = {
+        "vanta": "beastmode",
+        "jasur": "jasur2025",
+    }
 
 # ===== DB Connection =====
-DB_PATH = "inventory.db"
+DB_PATH = os.environ.get(
+    "DB_PATH",
+    os.path.join(os.getcwd(), "inventory.db")  # default for local dev
+)
+
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -230,13 +244,12 @@ def delete_item(item_id):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
+        username = request.form['username'].strip()
         password = request.form['password']
-        if username == 'vanta' and password == 'beastmode':
+        if ADMIN_USERS.get(username) == password:
             session['logged_in'] = True
             return redirect(url_for('index'))
-        else:
-            return render_template('login.html', error='Invalid credentials')
+        return render_template('login.html', error='Invalid credentials')
     return render_template('login.html')
 
 # 🚪 Logout
