@@ -6,6 +6,7 @@ import openpyxl
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Secret key for session management
+
 # ---- Admin accounts (supports multiple) ----
 # Format: "user1:pass1,user2:pass2"
 ADMIN_USERS_ENV = os.environ.get("ADMIN_USERS")
@@ -23,7 +24,6 @@ DB_PATH = os.environ.get(
     os.path.join(os.getcwd(), "inventory.db")  # default for local dev
 )
 
-
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -32,7 +32,31 @@ def get_db():
     conn.execute("PRAGMA synchronous = NORMAL")  # FULL if you prefer max safety
     return conn
 
-# ===== Sales Table Init =====
+# ===== Init DB: Inventory Table =====
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+
+    # Create inventory table if it doesn't exist
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            buying_price REAL,
+            selling_price REAL,
+            quantity INTEGER,
+            profit REAL,
+            currency TEXT NOT NULL DEFAULT 'UZS'
+        )
+    """)
+
+    # Backfill null or empty currency
+    c.execute("UPDATE inventory SET currency='UZS' WHERE currency IS NULL OR TRIM(currency)=''")
+
+    conn.commit()
+    conn.close()
+
+# ===== Init Sales Table =====
 def init_sales_table():
     conn = get_db()
     c = conn.cursor()
@@ -43,15 +67,17 @@ def init_sales_table():
             qty INTEGER NOT NULL,
             sell_price REAL NOT NULL,
             profit REAL NOT NULL,
-            sold_at TEXT DEFAULT CURRENT_TIMESTAMP
+            sold_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_id) REFERENCES inventory(id) ON DELETE CASCADE
         )
     """)
     conn.commit()
     conn.close()
 
-# Run table init at startup
-init_sales_table()
-
+# Run table initializations at startup
+with app.app_context():
+    init_db()
+    init_sales_table()
 
 # 🔎 Fetch inventory
 def get_inventory():
@@ -74,8 +100,8 @@ def index():
     direction = request.args.get('direction', 'asc')
 
     inventory = get_inventory()
-     
-        # 📈 Today's revenue & profit
+
+    # 📈 Today's revenue & profit
     conn = get_db()
     c = conn.cursor()
     c.execute("""
@@ -87,7 +113,6 @@ def index():
     """)
     today_revenue, today_profit = c.fetchone()
     conn.close()
-
 
     # 🔍 Filter by search
     if search_query:
@@ -108,11 +133,11 @@ def index():
     total_quantity = sum(item[4] for item in inventory)
     total_profit = sum(item[5] for item in inventory)
 
-    # 📊 Top 5 Profit & Lowest 5 Stock for Graphs
+    # 📊 Top 5 Profit & Lowest 5 Stock
     top_profit_items = sorted(inventory, key=lambda x: x[5], reverse=True)[:5]
     low_stock_items = sorted(inventory, key=lambda x: x[4])[:5]
 
-    # 📊 Last 7 days revenue (oldest → newest)
+    # 📊 Last 7 days revenue
     conn = get_db()
     c = conn.cursor()
     c.execute("""
@@ -139,23 +164,24 @@ def index():
     sales_labels = [r[0] for r in rows]
     sales_values = [r[1] for r in rows]
 
-
     return render_template(
-    'index.html',
-    inventory=inventory,
-    total_quantity=total_quantity,
-    total_profit=total_profit,
-    search_query=search_query,
-    sort_by=sort_by,
-    direction=direction,
-    selected_filter=selected_filter,
-    top_profit_labels=[item[1] for item in top_profit_items],
-    top_profit_values=[item[5] for item in top_profit_items],
-    low_stock_labels=[item[1] for item in low_stock_items],
-    low_stock_values=[item[4] for item in low_stock_items],  # ← comma here
-    today_revenue=today_revenue,
-    today_profit=today_profit,
-)
+        'index.html',
+        inventory=inventory,
+        total_quantity=total_quantity,
+        total_profit=total_profit,
+        search_query=search_query,
+        sort_by=sort_by,
+        direction=direction,
+        selected_filter=selected_filter,
+        top_profit_labels=[item[1] for item in top_profit_items],
+        top_profit_values=[item[5] for item in top_profit_items],
+        low_stock_labels=[item[1] for item in low_stock_items],
+        low_stock_values=[item[4] for item in low_stock_items],
+        today_revenue=today_revenue,
+        today_profit=today_profit,
+        sales_labels=sales_labels,
+        sales_values=sales_values
+    )
 
 # ➕ Add Item
 @app.route('/add', methods=['POST'])
@@ -194,7 +220,6 @@ def sell_item():
     conn = get_db()
     c = conn.cursor()
 
-    # Get item details
     c.execute("SELECT quantity, buying_price FROM inventory WHERE id = ?", (item_id,))
     item = c.fetchone()
     if not item:
@@ -210,20 +235,17 @@ def sell_item():
 
     profit = (sell_price - buy_price) * qty
 
-    # Record sale
     c.execute("""
         INSERT INTO sales (item_id, qty, sell_price, profit)
         VALUES (?, ?, ?, ?)
     """, (item_id, qty, sell_price, profit))
 
-    # Update stock
     c.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ?", (qty, item_id))
     conn.commit()
     conn.close()
 
     flash(f"Sold {qty} unit(s). Profit: {profit:.2f}", "success")
     return redirect(url_for('index'))
-
 
 # ❌ Delete Item
 @app.route('/delete/<int:item_id>')
@@ -301,7 +323,7 @@ def export_excel():
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.title = "Inventory"
-    headers = ["ID", "Name", "Buying Price", "Selling Price", "Quantity", "Profit"]
+    headers = ["ID", "Name", "Buying Price", "Selling Price", "Quantity", "Profit", "Currency"]
     sheet.append(headers)
     for item in inventory:
         sheet.append(item)
