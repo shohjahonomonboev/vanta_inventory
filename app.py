@@ -24,20 +24,23 @@ DB_PATH = os.environ.get(
     os.path.join(os.getcwd(), "inventory.db")  # default for local dev
 )
 
+# =========================
+# DB helpers + init
+# =========================
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")  # FULL if you prefer max safety
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
-# ===== Init DB: Inventory Table =====
 def init_db():
+    """Ensure inventory table exists and has a 'currency' column."""
     conn = get_db()
     c = conn.cursor()
 
-    # Create inventory table if it doesn't exist
+    # Create table if missing (without currency column first)
     c.execute("""
         CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,19 +48,25 @@ def init_db():
             buying_price REAL,
             selling_price REAL,
             quantity INTEGER,
-            profit REAL,
-            currency TEXT NOT NULL DEFAULT 'UZS'
+            profit REAL
+            -- 'currency' will be added if missing
         )
     """)
 
-    # Backfill null or empty currency
+    # Add 'currency' column if missing
+    c.execute("PRAGMA table_info(inventory)")
+    cols = [row[1] for row in c.fetchall()]
+    if "currency" not in cols:
+        c.execute("ALTER TABLE inventory ADD COLUMN currency TEXT NOT NULL DEFAULT 'UZS'")
+
+    # Backfill
     c.execute("UPDATE inventory SET currency='UZS' WHERE currency IS NULL OR TRIM(currency)=''")
 
     conn.commit()
     conn.close()
 
-# ===== Init Sales Table =====
 def init_sales_table():
+    """Ensure sales table exists."""
     conn = get_db()
     c = conn.cursor()
     c.execute("""
@@ -74,10 +83,12 @@ def init_sales_table():
     conn.commit()
     conn.close()
 
-# Run table initializations at startup
+# Run table initializations at import time (works on Render + local)
 with app.app_context():
     init_db()
     init_sales_table()
+
+
 
 # 🔎 Fetch inventory
 def get_inventory():
