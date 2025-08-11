@@ -1,19 +1,23 @@
 name: Keep Vanta Inventory Awake
+
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 * * * *"  # every 5 minutes
   workflow_dispatch:
+
 jobs:
   ping:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Ping login page
+      - name: Ping homepage and login
         run: |
           set -e
           for i in 1 2 3; do
-            curl -I --silent --show-error --fail \
-              https://vanta-inventory.onrender.com/login \
-              && echo "Ping $i OK" && break || (echo "Ping $i failed" && sleep 10)
+            curl -I --silent --show-error --fail https://vanta-inventory.onrender.com/ \
+              && echo "Homepage ping $i OK" && break || (echo "Homepage ping $i failed" && sleep 10)
           done
-
+          for i in 1 2 3; do
+            curl -I --silent --show-error --fail https://vanta-inventory.onrender.com/login \
+              && echo "Login ping $i OK" && break || (echo "Login ping $i failed" && sleep 10)
+          done
