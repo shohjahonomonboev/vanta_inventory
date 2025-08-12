@@ -10,37 +10,47 @@
 <p class="subtitle">Welcome back, Commander.</p>
 
 <div class="kpis">
-  <div class="kpi kpi-green"><strong>Today's Revenue</strong><br> {{ CURRENCY }} {{ "%.2f"|format(today_revenue) }}</div>
-  <div class="kpi kpi-blue"><strong>Today's Profit</strong><br> {{ CURRENCY }} {{ "%.2f"|format(today_profit) }}</div>
+  <div class="kpi kpi-green"><strong>Today's Revenue</strong><br> {{ CURRENCY }} {{ today_revenue | money }}</div>
+  <div class="kpi kpi-blue"><strong>Today's Profit</strong><br> {{ CURRENCY }} {{ today_profit   | money }}</div>
 </div>
 
 <h2>Sell Item</h2>
 <form action="{{ url_for('sell_item') }}" method="POST" class="form-row card">
   <select name="item_id" required id="sell-item-select">
     {% for item in inventory %}
-      <option value="{{ item[0] }}">{{ item[1] }} — Stock: {{ item[4] }} — Sell: {{ item[3] }}</option>
+      <option value="{{ item[0] }}">{{ item[1] }} — Stock: {{ item[4] }} — Sell: {{ item[3] | money }}</option>
     {% endfor %}
   </select>
   <input type="number" name="qty" placeholder="Qty" min="1" required>
-  <input type="number" step="0.01" name="sell_price" id="sell-price" placeholder="Sell Price ({{ CURRENCY }})" required>
+  <input type="text" name="sell_price" id="sell-price" data-money data-decimals="0" placeholder="Sell Price ({{ CURRENCY }})" required>
   <button type="submit">Sell</button>
 </form>
 
 <script>
-  const priceMap = { {% for item in inventory %}"{{ item[0] }}": {{ "%.2f"|format(item[3]) }},{% endfor %} };
+  // raw numbers (no commas) -> formatted by money-input script below
+  const priceMap = { {% for item in inventory %}"{{ item[0] }}": {{ item[3] | float }} ,{% endfor %} };
   const sel = document.getElementById('sell-item-select');
   const priceInput = document.getElementById('sell-price');
   if (sel && priceInput) {
-    const setPrice = () => { priceInput.value = priceMap[sel.value] ?? ""; };
-    sel.addEventListener('change', setPrice); setPrice();
+    const setPrice = () => {
+      const v = priceMap[sel.value];
+      if (v != null) {
+        priceInput.value = String(Math.round(v));
+        priceInput.dispatchEvent(new Event('input')); // format to 1,000,000
+      } else {
+        priceInput.value = "";
+      }
+    };
+    sel.addEventListener('change', setPrice);
+    setPrice();
   }
 </script>
 
 <h2>Add Item</h2>
 <form action="{{ url_for('add_item') }}" method="POST" class="form-row card">
   <input type="text" name="name" placeholder="Item name" required>
-  <input type="number" step="0.01" name="buying_price" placeholder="Buying price" required>
-  <input type="number" step="0.01" name="selling_price" placeholder="Selling price" required>
+  <input type="text" name="buying_price"  data-money data-decimals="0" placeholder="Buying price" required>
+  <input type="text" name="selling_price" data-money data-decimals="0" placeholder="Selling price" required>
   <input type="number" name="quantity" placeholder="Quantity" required>
   <button type="submit">Add</button>
 </form>
@@ -75,9 +85,9 @@
       <td>{{ loop.index }}</td>
       <td>{{ item[1] }}</td>
       <td>{{ item[4] }}</td>
-      <td>{{ item[2] }}</td>
-      <td>{{ item[3] }}</td>
-      <td>{{ item[5] }}</td>
+      <td>{{ item[2] | money }}</td>
+      <td>{{ item[3] | money }}</td>
+      <td>{{ item[5] | money }}</td>
       <td class="actions">
         <a href="{{ url_for('edit_item', item_id=item[0]) }}">✏️</a>
         <a href="{{ url_for('delete_item', item_id=item[0]) }}">❌</a>
@@ -98,8 +108,8 @@
 
 <script>
   const currency = "{{ CURRENCY }}";
-  const fmt = new Intl.NumberFormat(undefined, { style:'currency', currencyDisplay:'narrowSymbol', currency: (currency || 'UZS') });
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const moneyFmt = (v) => `${currency} ` + Math.round(Number(v || 0)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
   function makeGradient(ctx, c1, c2){
     const g = ctx.createLinearGradient(0,0,0,300);
@@ -113,11 +123,12 @@
       responsive:true, maintainAspectRatio:false,
       plugins:{
         legend:{ labels:{ color:textColor, usePointStyle:true, pointStyle:'circle' } },
-        title:{ display: !!title, text:title, color:textColor, padding:18 }
+        title:{ display: !!title, text:title, color:textColor, padding:18 },
+        tooltip:{ callbacks:{ label:(ctx)=> moneyFmt(ctx.parsed.y) } }
       },
       scales:{
         x:{ grid:{ display:false }, ticks:{ color:textColor } },
-        y:{ grid:{ color:gridColor, drawBorder:false }, ticks:{ color:textColor, callback:v=>fmt.format(v) } }
+        y:{ grid:{ color:gridColor, drawBorder:false }, ticks:{ color:textColor, callback:v=>moneyFmt(v) } }
       },
       animation:{ duration:600, easing:'easeOutQuart' }
     };
@@ -170,7 +181,43 @@
   document.addEventListener('vanta-theme-change', buildCharts);
 </script>
 
-<p class="mt"><a href="{{ url_for('export_excel') }}" class="btn btn-green">⬇️ Download Excel</a></p>
 <a href="/admin/backup" class="btn">Backup Now</a>
+
+<p class="mt"><a href="{{ url_for('export_excel') }}" class="btn btn-green">⬇️ Download Excel</a></p>
+
+<!-- Live input money formatter: turns 1000000 -> 1,000,000 while typing and strips commas on submit -->
+<script>
+(function () {
+  const inputs = document.querySelectorAll("[data-money]");
+
+  function formatMoney(raw) {
+    const digits = String(raw || "").replace(/[^\d]/g, "");
+    if (!digits) return "";
+    return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  function unformatMoney(s) { return String(s || "").replace(/,/g, ""); }
+
+  inputs.forEach(inp => {
+    if (inp.value) inp.value = formatMoney(inp.value);
+
+    inp.addEventListener("input", () => {
+      const start = inp.selectionStart || 0;
+      const before = inp.value;
+      inp.value = formatMoney(before);
+      const diff = inp.value.length - before.length;
+      const pos = Math.max(0, start + diff);
+      try { inp.setSelectionRange(pos, pos); } catch(e) {}
+    });
+
+    inp.addEventListener("blur", () => { inp.value = formatMoney(inp.value); });
+
+    if (inp.form) {
+      inp.form.addEventListener("submit", () => {
+        inp.value = unformatMoney(inp.value);
+      });
+    }
+  });
+})();
+</script>
 
 {% endblock %}

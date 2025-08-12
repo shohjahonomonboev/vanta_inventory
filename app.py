@@ -9,6 +9,31 @@ from database_sqlalchemy import ensure_schema
 
 app = Flask(__name__)
 
+# --- Money formatting helpers (Uzbek so'm, no decimals) ---
+def money(v, decimals=0):
+    """
+    Format numbers like 1,000,000 (no decimals by default for so'm).
+    Use in templates: {{ value | money }}
+    """
+    try:
+        v = float(str(v).replace(",", ""))
+    except (TypeError, ValueError):
+        return v
+    return f"{v:,.{decimals}f}"
+
+def parse_money(s):
+    """
+    Accept inputs like '1,000,000' and return float 1000000.0.
+    Safe for empty/invalid strings (returns 0.0).
+    """
+    try:
+        return float(str(s).replace(",", "").strip() or 0)
+    except ValueError:
+        return 0.0
+
+# Register Jinja filter
+app.jinja_env.filters["money"] = money
+
 # --- Run schema check once at startup ---
 with app.app_context():
     try:
@@ -197,8 +222,8 @@ def add_item():
 
     name = request.form['name'].strip().lower()
     quantity = int(request.form['quantity'])
-    buying_price = float(request.form['buying_price'])
-    selling_price = float(request.form['selling_price'])
+    buying_price = parse_money(request.form['buying_price'])
+    selling_price = parse_money(request.form['selling_price'])
     profit = (selling_price - buying_price) * quantity
 
     db.db_exec(
@@ -219,7 +244,7 @@ def sell_item():
 
     item_id = int(request.form['item_id'])
     qty = int(request.form['qty'])
-    sell_price = float(request.form['sell_price'])
+    sell_price = parse_money(request.form['sell_price'])
 
     row = db.db_one("SELECT quantity, buying_price FROM inventory WHERE id=:id", {"id": item_id})
     if not row:
@@ -242,7 +267,7 @@ def sell_item():
     )
     db.db_exec("UPDATE inventory SET quantity = quantity - :q WHERE id = :id", {"q": qty, "id": item_id})
 
-    flash(f"Sold {qty} unit(s). Profit: {profit:.2f}", "success")
+    flash(f"Sold {qty} unit(s). Profit: {money(profit)} UZS", "success")
     return redirect(url_for('index'))
 
 # ❌ Delete Item
@@ -282,8 +307,8 @@ def edit_item(item_id):
     if request.method == 'POST':
         name = request.form['name'].strip().lower()
         quantity = int(request.form['quantity'])
-        buying_price = float(request.form['buying_price'])
-        selling_price = float(request.form['selling_price'])
+        buying_price = parse_money(request.form['buying_price'])
+        selling_price = parse_money(request.form['selling_price'])
         profit = (selling_price - buying_price) * quantity
 
         db.db_exec(

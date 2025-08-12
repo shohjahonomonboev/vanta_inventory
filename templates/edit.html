@@ -5,10 +5,55 @@
 <p class="subtitle">Vanta Inventory System</p>
 
 <form method="POST" class="form-col">
-  <input type="text" name="name" placeholder="Item Name" value="{{ item['name'] }}" required>
-  <input type="number" step="0.01" name="buying_price" placeholder="Buying Price" value="{{ item['buying_price'] }}" required>
-  <input type="number" step="0.01" name="selling_price" placeholder="Selling Price" value="{{ item['selling_price'] }}" required>
+  <input type="text"   name="name" placeholder="Item Name" value="{{ item['name'] }}" required>
+
+  <!-- money inputs: text + auto-format to 1,000,000 -->
+  <input type="text"   name="buying_price"  data-money data-decimals="0"
+         placeholder="Buying Price"
+         value="{{ item['buying_price'] | money }}"
+         required>
+
+  <input type="text"   name="selling_price" data-money data-decimals="0"
+         placeholder="Selling Price"
+         value="{{ item['selling_price'] | money }}"
+         required>
+
   <input type="number" name="quantity" placeholder="Quantity" value="{{ item['quantity'] }}" required>
   <button type="submit">Update</button>
 </form>
+
+<!-- Live input money formatter (same as index.html) -->
+<script>
+(function () {
+  const inputs = document.querySelectorAll("[data-money]");
+
+  function formatMoney(raw) {
+    const digits = String(raw || "").replace(/[^\d]/g, "");
+    if (!digits) return "";
+    return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  function unformatMoney(s) { return String(s || "").replace(/,/g, ""); }
+
+  inputs.forEach(inp => {
+    if (inp.value) inp.value = formatMoney(inp.value);
+
+    inp.addEventListener("input", () => {
+      const start = inp.selectionStart || 0;
+      const before = inp.value;
+      inp.value = formatMoney(before);
+      const diff = inp.value.length - before.length;
+      const pos = Math.max(0, start + diff);
+      try { inp.setSelectionRange(pos, pos); } catch(e) {}
+    });
+
+    inp.addEventListener("blur", () => { inp.value = formatMoney(inp.value); });
+
+    if (inp.form) {
+      inp.form.addEventListener("submit", () => {
+        inp.value = unformatMoney(inp.value);
+      });
+    }
+  });
+})();
+</script>
 {% endblock %}
