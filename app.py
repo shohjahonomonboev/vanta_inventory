@@ -1,8 +1,18 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 import os, io, openpyxl
 import database_sqlalchemy as db
+from database_sqlalchemy import ensure_schema
 
 app = Flask(__name__)
+
+# ✅ Run schema check once at startup
+with app.app_context():
+    try:
+        ensure_schema()
+        print("✅ Database schema ensured at startup.")
+    except Exception as e:
+        print(f"⚠️ Failed to ensure schema: {e}")
+
 app.secret_key = os.getenv("SECRET_KEY", "dev-only-secret-change-me")
 
 # --- Version helpers ---
@@ -24,9 +34,11 @@ def __health():
 # --- Env config ---
 ENV = os.getenv("ENV", "dev").lower()
 if ENV == "dev":
-    app.config.update(DEBUG=True, TEMPLATES_AUTO_RELOAD=True, SERVER_NAME=None, SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax")
+    app.config.update(DEBUG=True, TEMPLATES_AUTO_RELOAD=True, SERVER_NAME=None,
+                      SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax")
 else:
-    app.config.update(TEMPLATES_AUTO_RELOAD=False, SEND_FILE_MAX_AGE_DEFAULT=31536000, SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE="Lax")
+    app.config.update(TEMPLATES_AUTO_RELOAD=False, SEND_FILE_MAX_AGE_DEFAULT=31536000,
+                      SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE="Lax")
 
 # --- Admin users ---
 ADMIN_USERS_ENV = os.environ.get("ADMIN_USERS")
@@ -35,21 +47,7 @@ if ADMIN_USERS_ENV:
 else:
     ADMIN_USERS = {"vanta": "beastmode", "jasur": "jasur2025"}
 
-# Ensure schema (works for both SQLite & Postgres)
-_initialized = False  # Flag so it runs only once
-
-@app.before_request
-def _init_db_once():
-    global _initialized
-    if not _initialized:
-        try:
-            db.ensure_schema()  # Create tables if missing
-        finally:
-            _initialized = True
-
-
 # ===== Helpers =====
-
 def get_inventory():
     rows = db.db_all(
         """
@@ -75,8 +73,11 @@ def index():
     inventory = get_inventory()
     CURRENCY = (inventory[0][6] if inventory and len(inventory[0]) > 6 else 'UZS')
 
-    # Today's revenue/profit (portable SQL)
-    if db.is_sqlite():
+    # Determine DB type
+    using_sqlite = db.DATABASE_URL.startswith("sqlite")
+
+    # Today's revenue/profit
+    if using_sqlite:
         row = db.db_one(
             """
             SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
@@ -113,8 +114,8 @@ def index():
     top_profit_items = sorted(inventory, key=lambda x: x[5], reverse=True)[:5]
     low_stock_items = sorted(inventory, key=lambda x: x[4])[:5]
 
-    # Last 7 days revenue (portable)
-    if db.is_sqlite():
+    # Last 7 days revenue
+    if using_sqlite:
         rows = db.db_all(
             """
             WITH days AS (
@@ -308,6 +309,6 @@ def export_excel():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-# Local dev entry (prefer Flask CLI)
+# Local dev entry
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=True)
