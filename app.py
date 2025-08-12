@@ -5,7 +5,7 @@ from database_sqlalchemy import ensure_schema
 
 app = Flask(__name__)
 
-# ✅ Run schema check once at startup
+# --- Run schema check once at startup ---
 with app.app_context():
     try:
         ensure_schema()
@@ -34,11 +34,20 @@ def __health():
 # --- Env config ---
 ENV = os.getenv("ENV", "dev").lower()
 if ENV == "dev":
-    app.config.update(DEBUG=True, TEMPLATES_AUTO_RELOAD=True, SERVER_NAME=None,
-                      SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax")
+    app.config.update(
+        DEBUG=True,
+        TEMPLATES_AUTO_RELOAD=True,
+        SERVER_NAME=None,
+        SESSION_COOKIE_SECURE=False,
+        SESSION_COOKIE_SAMESITE="Lax"
+    )
 else:
-    app.config.update(TEMPLATES_AUTO_RELOAD=False, SEND_FILE_MAX_AGE_DEFAULT=31536000,
-                      SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE="Lax")
+    app.config.update(
+        TEMPLATES_AUTO_RELOAD=False,
+        SEND_FILE_MAX_AGE_DEFAULT=31536000,
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_SAMESITE="Lax"
+    )
 
 # --- Admin users ---
 ADMIN_USERS_ENV = os.environ.get("ADMIN_USERS")
@@ -46,6 +55,7 @@ if ADMIN_USERS_ENV:
     ADMIN_USERS = dict(pair.split(":", 1) for pair in ADMIN_USERS_ENV.split(","))
 else:
     ADMIN_USERS = {"vanta": "beastmode", "jasur": "jasur2025"}
+
 
 # ===== Helpers =====
 def get_inventory():
