@@ -1,4 +1,3 @@
-# database_sqlalchemy.py
 import os, time
 from pathlib import Path
 from sqlalchemy import create_engine, text
@@ -50,6 +49,10 @@ def make_engine():
     raise last_err
 
 engine = make_engine()
+
+def is_sqlite() -> bool:
+    """Helper for app.py to check if current DB is SQLite."""
+    return DATABASE_URL.startswith("sqlite")
 
 def ensure_schema():
     is_pg = DATABASE_URL.startswith("postgresql")
@@ -124,7 +127,6 @@ def ensure_schema():
     with engine.begin() as conn:
         for s in stmts:
             conn.exec_driver_sql(s)
-
 
 def db_all(sql, params=None):
     """Return all rows for a query."""
