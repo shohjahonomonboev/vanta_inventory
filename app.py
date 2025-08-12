@@ -1,9 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
-import os, sqlite3, io, openpyxl
+import os, io, openpyxl
+import database_sqlalchemy as db
 
 app = Flask(__name__)
-
-# Stable secret for local; override in prod with ENV SECRET_KEY
 app.secret_key = os.getenv("SECRET_KEY", "dev-only-secret-change-me")
 
 # --- Version helpers ---
@@ -18,119 +17,41 @@ def inject_version():
     return {"APP_VERSION": get_version()}
 
 # --- Health route ---
-@app.route("/__health", methods=["GET"]) 
+@app.get("/__health")
 def __health():
     return jsonify(status="ok", version=get_version()), 200
 
-# --- Environment-aware config ---
+# --- Env config ---
 ENV = os.getenv("ENV", "dev").lower()
 if ENV == "dev":
-    app.config.update(
-        DEBUG=True,
-        TEMPLATES_AUTO_RELOAD=True,
-        SERVER_NAME=None,             # critical for localhost
-        SESSION_COOKIE_SECURE=False,  # allow cookies on http
-        SESSION_COOKIE_SAMESITE="Lax",
-    )
+    app.config.update(DEBUG=True, TEMPLATES_AUTO_RELOAD=True, SERVER_NAME=None, SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax")
 else:
-    app.config.update(
-        TEMPLATES_AUTO_RELOAD=False,
-        SEND_FILE_MAX_AGE_DEFAULT=31536000,
-        SESSION_COOKIE_SECURE=True,
-        SESSION_COOKIE_SAMESITE="Lax",
-    )
+    app.config.update(TEMPLATES_AUTO_RELOAD=False, SEND_FILE_MAX_AGE_DEFAULT=31536000, SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE="Lax")
 
-# --- Admin accounts ---
+# --- Admin users ---
 ADMIN_USERS_ENV = os.environ.get("ADMIN_USERS")
 if ADMIN_USERS_ENV:
     ADMIN_USERS = dict(pair.split(":", 1) for pair in ADMIN_USERS_ENV.split(","))
 else:
-    ADMIN_USERS = {
-        "vanta": "beastmode",
-        "jasur": "jasur2025",
-    }
+    ADMIN_USERS = {"vanta": "beastmode", "jasur": "jasur2025"}
 
-# --- Paths / DB ---
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "inventory.db"))
+# Ensure schema (works for both SQLite & Postgres)
+db.ensure_schema()
 
-# =========================
-# DB helpers + init
-# =========================
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    return conn
+# ===== Helpers =====
 
-def init_db():
-    """Ensure inventory table exists and has a 'currency' column."""
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute(
-        """
-        CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE,
-            buying_price REAL,
-            selling_price REAL,
-            quantity INTEGER,
-            profit REAL
-            -- 'currency' will be added if missing
-        )
-        """
-    )
-
-    # Add 'currency' column if missing
-    c.execute("PRAGMA table_info(inventory)")
-    cols = [row[1] for row in c.fetchall()]
-    if "currency" not in cols:
-        c.execute("ALTER TABLE inventory ADD COLUMN currency TEXT NOT NULL DEFAULT 'UZS'")
-
-    # Backfill
-    c.execute("UPDATE inventory SET currency='UZS' WHERE currency IS NULL OR TRIM(currency)=''")
-
-    conn.commit()
-    conn.close()
-
-def init_sales_table():
-    """Ensure sales table exists."""
-    conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        """
-        CREATE TABLE IF NOT EXISTS sales (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id INTEGER NOT NULL,
-            qty INTEGER NOT NULL,
-            sell_price REAL NOT NULL,
-            profit REAL NOT NULL,
-            sold_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_id) REFERENCES inventory(id) ON DELETE CASCADE
-        )
-        """
-    )
-    conn.commit()
-    conn.close()
-
-# Run table initializations at import time (works on Render + local)
-with app.app_context():
-    init_db()
-    init_sales_table()
-
-# 🔎 Fetch inventory
 def get_inventory():
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM inventory")
-    items = cursor.fetchall()
-    conn.close()
-    return items
+    rows = db.db_all(
+        """
+        SELECT id, name, buying_price, selling_price, quantity, profit,
+               COALESCE(currency, 'UZS') AS currency
+        FROM inventory
+        ORDER BY id
+        """
+    )
+    return [tuple(r) for r in rows]
 
-# 🏠 Home Route
+# 🏠 Home
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if not session.get('logged_in'):
@@ -142,76 +63,78 @@ def index():
     direction = request.args.get('direction', 'asc')
 
     inventory = get_inventory()
-
-    # Currency code (from first row if present)
     CURRENCY = (inventory[0][6] if inventory and len(inventory[0]) > 6 else 'UZS')
 
-    # 📈 Today's revenue & profit
-    conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        """
-        SELECT 
-            COALESCE(SUM(qty * sell_price), 0) AS revenue,
-            COALESCE(SUM(profit), 0) AS profit
-        FROM sales
-        WHERE DATE(sold_at) = DATE('now', 'localtime')
-        """
-    )
-    today_revenue, today_profit = c.fetchone()
-    conn.close()
+    # Today's revenue/profit (portable SQL)
+    if db.is_sqlite():
+        row = db.db_one(
+            """
+            SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
+            FROM sales WHERE DATE(sold_at)=DATE('now','localtime')
+            """
+        )
+    else:
+        row = db.db_one(
+            """
+            SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
+            FROM sales WHERE DATE(sold_at)=CURRENT_DATE
+            """
+        )
+    today_revenue, today_profit = (row[0] if row else 0), (row[1] if row else 0)
 
-    # 🔍 Filter by search
+    # Filter
     if search_query:
         inventory = [item for item in inventory if search_query in item[1].lower()]
-
-    # 🧠 Extra filters
     if selected_filter == 'low_stock':
         inventory = [item for item in inventory if item[4] <= 5]
     elif selected_filter == 'high_profit':
         inventory = [item for item in inventory if item[5] >= 100]
 
-    # 🔄 Sorting
+    # Sort
     sort_map = {'name': 1, 'quantity': 4, 'profit': 5}
     if sort_by in sort_map:
-        index_key = sort_map[sort_by]
-        inventory = sorted(inventory, key=lambda x: x[index_key], reverse=(direction == 'desc'))
+        idx = sort_map[sort_by]
+        inventory = sorted(inventory, key=lambda x: x[idx], reverse=(direction == 'desc'))
 
     total_quantity = sum(item[4] for item in inventory)
     total_profit = sum(item[5] for item in inventory)
 
-    # 📊 Top 5 Profit & Lowest 5 Stock
+    # Top 5 / Low 5
     top_profit_items = sorted(inventory, key=lambda x: x[5], reverse=True)[:5]
     low_stock_items = sorted(inventory, key=lambda x: x[4])[:5]
 
-    # 📊 Last 7 days revenue
-    conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        """
-        WITH days AS (
-          SELECT DATE('now','localtime','-6 day') AS d
-          UNION ALL SELECT DATE('now','localtime','-5 day')
-          UNION ALL SELECT DATE('now','localtime','-4 day')
-          UNION ALL SELECT DATE('now','localtime','-3 day')
-          UNION ALL SELECT DATE('now','localtime','-2 day')
-          UNION ALL SELECT DATE('now','localtime','-1 day')
-          UNION ALL SELECT DATE('now','localtime')
+    # Last 7 days revenue (portable)
+    if db.is_sqlite():
+        rows = db.db_all(
+            """
+            WITH days AS (
+              SELECT DATE('now','localtime','-6 day') AS d
+              UNION ALL SELECT DATE('now','localtime','-5 day')
+              UNION ALL SELECT DATE('now','localtime','-4 day')
+              UNION ALL SELECT DATE('now','localtime','-3 day')
+              UNION ALL SELECT DATE('now','localtime','-2 day')
+              UNION ALL SELECT DATE('now','localtime','-1 day')
+              UNION ALL SELECT DATE('now','localtime')
+            )
+            SELECT d AS day,
+                   COALESCE((SELECT SUM(qty*sell_price) FROM sales s WHERE DATE(s.sold_at)=d),0) AS revenue
+            FROM days
+            """
         )
-        SELECT d AS day,
-               COALESCE((
-                 SELECT SUM(qty * sell_price)
-                 FROM sales s
-                 WHERE DATE(s.sold_at)=d
-               ), 0) AS revenue
-        FROM days;
-        """
-    )
-    rows = c.fetchall()
-    conn.close()
-
-    sales_labels = [r[0] for r in rows]
-    sales_values = [r[1] for r in rows]
+    else:
+        rows = db.db_all(
+            """
+            WITH days AS (
+              SELECT generate_series(current_date - interval '6 day', current_date, interval '1 day')::date AS d
+            )
+            SELECT d AS day,
+                   COALESCE((SELECT SUM(qty*sell_price) FROM sales s WHERE DATE(s.sold_at)=d),0) AS revenue
+            FROM days
+            ORDER BY d
+            """
+        )
+    sales_labels = [str(r[0]) for r in rows]
+    sales_values = [float(r[1] or 0) for r in rows]
 
     # Stock tracker
     stock_labels = [item[1] for item in inventory]
@@ -240,7 +163,7 @@ def index():
     )
 
 # ➕ Add Item
-@app.route('/add', methods=['POST'])
+@app.post('/add')
 def add_item():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
@@ -251,23 +174,18 @@ def add_item():
     selling_price = float(request.form['selling_price'])
     profit = (selling_price - buying_price) * quantity
 
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute(
+    db.db_exec(
         '''
         INSERT INTO inventory (name, buying_price, selling_price, quantity, profit)
-        VALUES (?, ?, ?, ?, ?)
-        ''',
-        (name.capitalize(), buying_price, selling_price, quantity, profit),
+        VALUES (:n, :bp, :sp, :q, :pf)
+        ''', {"n": name.capitalize(), "bp": buying_price, "sp": selling_price, "q": quantity, "pf": profit}
     )
-    conn.commit()
-    conn.close()
 
     flash(f"Item '{name.capitalize()}' added successfully!", "success")
     return redirect(url_for('index'))
 
 # 💵 Sell Item
-@app.route('/sell', methods=['POST'])
+@app.post('/sell')
 def sell_item():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
@@ -276,55 +194,40 @@ def sell_item():
     qty = int(request.form['qty'])
     sell_price = float(request.form['sell_price'])
 
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("SELECT quantity, buying_price FROM inventory WHERE id = ?", (item_id,))
-    item = c.fetchone()
-    if not item:
+    row = db.db_one("SELECT quantity, buying_price FROM inventory WHERE id=:id", {"id": item_id})
+    if not row:
         flash("Item not found!", "error")
-        conn.close()
         return redirect(url_for('index'))
 
-    stock_qty, buy_price = item
+    stock_qty, buy_price = int(row[0]), float(row[1])
     if qty > stock_qty:
         flash("Not enough stock!", "error")
-        conn.close()
         return redirect(url_for('index'))
 
     profit = (sell_price - buy_price) * qty
 
-    c.execute(
+    db.db_exec(
         """
         INSERT INTO sales (item_id, qty, sell_price, profit)
-        VALUES (?, ?, ?, ?)
+        VALUES (:id, :q, :sp, :pf)
         """,
-        (item_id, qty, sell_price, profit),
+        {"id": item_id, "q": qty, "sp": sell_price, "pf": profit}
     )
-
-    c.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ?", (qty, item_id))
-    conn.commit()
-    conn.close()
+    db.db_exec("UPDATE inventory SET quantity = quantity - :q WHERE id = :id", {"q": qty, "id": item_id})
 
     flash(f"Sold {qty} unit(s). Profit: {profit:.2f}", "success")
     return redirect(url_for('index'))
 
 # ❌ Delete Item
-@app.route('/delete/<int:item_id>')
+@app.get('/delete/<int:item_id>')
 def delete_item(item_id):
     if not session.get('logged_in'):
         return redirect(url_for('login'))
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM inventory WHERE id = ?', (item_id,))
-    conn.commit()
-    conn.close()
-
+    db.db_exec('DELETE FROM inventory WHERE id = :id', {"id": item_id})
     flash("Item deleted successfully!", "warning")
     return redirect(url_for('index'))
 
-# 🔐 Login
+# 🔐 Login/Logout
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -336,8 +239,7 @@ def login():
         return render_template('login.html', error='Invalid credentials')
     return render_template('login.html')
 
-# 🚪 Logout
-@app.route('/logout')
+@app.get('/logout')
 def logout():
     session.pop('logged_in', None)
     return redirect(url_for('login'))
@@ -348,9 +250,6 @@ def edit_item(item_id):
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
-    conn = get_db()
-    cursor = conn.cursor()
-
     if request.method == 'POST':
         name = request.form['name'].strip().lower()
         quantity = int(request.form['quantity'])
@@ -358,53 +257,47 @@ def edit_item(item_id):
         selling_price = float(request.form['selling_price'])
         profit = (selling_price - buying_price) * quantity
 
-        cursor.execute(
+        db.db_exec(
             '''
             UPDATE inventory
-            SET name = ?, buying_price = ?, selling_price = ?, quantity = ?, profit = ?
-            WHERE id = ?
-            ''',
-            (name.capitalize(), buying_price, selling_price, quantity, profit, item_id),
+            SET name=:n, buying_price=:bp, selling_price=:sp, quantity=:q, profit=:pf
+            WHERE id=:id
+            ''', {"n": name.capitalize(), "bp": buying_price, "sp": selling_price, "q": quantity, "pf": profit, "id": item_id}
         )
-        conn.commit()
-        conn.close()
-
         flash(f"Item '{name.capitalize()}' updated successfully!", "info")
         return redirect(url_for('index'))
 
-    cursor.execute('SELECT * FROM inventory WHERE id = ?', (item_id,))
-    item = cursor.fetchone()
-    conn.close()
+    row = db.db_one('SELECT * FROM inventory WHERE id = :id', {"id": item_id})
+    item = tuple(row) if row else None
     return render_template('edit.html', item=item)
 
 # 📤 Export to Excel
-@app.route('/export')
+@app.get('/export')
 def export_excel():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
     inventory = get_inventory()
 
-    workbook = openpyxl.Workbook()
-    sheet = workbook.active
-    sheet.title = "Inventory"
+    wb = openpyxl.Workbook()
+    sh = wb.active
+    sh.title = "Inventory"
     headers = ["ID", "Name", "Buying Price", "Selling Price", "Quantity", "Profit", "Currency"]
-    sheet.append(headers)
+    sh.append(headers)
     for row in inventory:
-        sheet.append(list(row))
+        sh.append(list(row))
 
-    file_stream = io.BytesIO()
-    workbook.save(file_stream)
-    file_stream.seek(0)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
 
     return send_file(
-        file_stream,
+        buf,
         as_attachment=True,
         download_name="inventory_export.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-# 🚀 Run App (Local only)
+# Local dev entry (prefer Flask CLI)
 if __name__ == "__main__":
-    # Prefer Flask CLI for dev; this is just a local fallback
     app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=True)
