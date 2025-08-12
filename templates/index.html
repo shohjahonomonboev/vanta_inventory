@@ -1,229 +1,175 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Jasurbek Inventory Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
+{% extends "base.html" %}
+{% block title %}Jasurbek Inventory Dashboard{% endblock %}
+{% block content %}
 
-    <!-- Logo (optional — replace image name if needed) -->
-    <div class="logo-container">
-        <img src="{{ url_for('static', filename='jasurbek_logo.png') }}" class="logo" alt="Jasurbek Logo">
-    </div>
+<div class="logo-container">
+  <img src="{{ url_for('static', filename='jasurbek_logo.png') }}" class="logo" alt="Jasurbek Logo">
+</div>
 
-    <!-- Main Title -->
-    <h1>Jasurbek Inventory System 📦</h1>
-    <p style="color: gray; font-size: 14px;">Welcome back, Jasurbek Commander.</p>
+<h1>Jasurbek Inventory System</h1>
+<p class="subtitle">Welcome back, Commander.</p>
 
-    <p>Your Web App is LIVE.</p>
+<div class="kpis">
+  <div class="kpi kpi-green"><strong>Today's Revenue</strong><br> {{ CURRENCY }} {{ "%.2f"|format(today_revenue) }}</div>
+  <div class="kpi kpi-blue"><strong>Today's Profit</strong><br> {{ CURRENCY }} {{ "%.2f"|format(today_profit) }}</div>
+</div>
 
-    <!-- 🔓 Logout -->
-    <p><a href="/logout" style="color: crimson; font-weight: bold;">Logout</a></p>
-
-    <!-- ✅ Flash Messages -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <div style="margin-bottom: 20px;">
-          {% for category, message in messages %}
-            <div style="padding: 10px; margin-bottom: 10px; border-radius: 6px;
-                        background-color: {% if category == 'success' %}#d4edda
-                                         {% elif category == 'info' %}#cce5ff
-                                         {% elif category == 'warning' %}#fff3cd
-                                         {% else %}#f8d7da{% endif %};
-                        color: #333; font-weight: bold;">
-              {{ message }}
-            </div>
-          {% endfor %}
-        </div>
-      {% endif %}
-    {% endwith %}
-
-<!-- 💵 Sell Item -->
-<h2>💵 Sell Item</h2>
-<form action="/sell" method="POST" style="margin-bottom: 20px;">
+<h2>Sell Item</h2>
+<form action="{{ url_for('sell_item') }}" method="POST" class="form-row card">
   <select name="item_id" required id="sell-item-select">
     {% for item in inventory %}
-      <!-- item = (id, name, buy, sell, qty, profit) -->
-      <option value="{{ item[0] }}">
-        {{ item[1] }} — Stock: {{ item[4] }} — Sell: {{ item[3] }}
-      </option>
+      <option value="{{ item[0] }}">{{ item[1] }} — Stock: {{ item[4] }} — Sell: {{ item[3] }}</option>
     {% endfor %}
   </select>
   <input type="number" name="qty" placeholder="Qty" min="1" required>
-  <input type="number" step="0.01" name="sell_price" id="sell-price" placeholder="Sell Price (UZS)" required>
+  <input type="number" step="0.01" name="sell_price" id="sell-price" placeholder="Sell Price ({{ CURRENCY }})" required>
   <button type="submit">Sell</button>
 </form>
 
 <script>
-  // Autofill sell price when item changes
-  const priceMap = {
-    {% for item in inventory %}
-      "{{ item[0] }}": {{ "%.2f"|format(item[3]) }},
-    {% endfor %}
-  };
+  const priceMap = { {% for item in inventory %}"{{ item[0] }}": {{ "%.2f"|format(item[3]) }},{% endfor %} };
   const sel = document.getElementById('sell-item-select');
   const priceInput = document.getElementById('sell-price');
   if (sel && priceInput) {
     const setPrice = () => { priceInput.value = priceMap[sel.value] ?? ""; };
-    sel.addEventListener('change', setPrice);
-    setPrice(); // set on load
+    sel.addEventListener('change', setPrice); setPrice();
   }
 </script>
 
-<!-- 💰 Today's KPIs -->
-<div style="display:flex;justify-content:center;gap:20px;margin:16px 0 22px;flex-wrap:wrap;">
-  <div style="background:#28a745;color:#fff;padding:12px 18px;border-radius:8px;min-width:180px;text-align:center;">
-    <strong>Today's Revenue</strong><br>
-    UZS {{ "%.2f"|format(today_revenue) }}
-  </div>
-  <div style="background:#17a2b8;color:#fff;padding:12px 18px;border-radius:8px;min-width:180px;text-align:center;">
-    <strong>Today's Profit</strong><br>
-    UZS {{ "%.2f"|format(today_profit) }}
-  </div>
+<h2>Add Item</h2>
+<form action="{{ url_for('add_item') }}" method="POST" class="form-row card">
+  <input type="text" name="name" placeholder="Item name" required>
+  <input type="number" step="0.01" name="buying_price" placeholder="Buying price" required>
+  <input type="number" step="0.01" name="selling_price" placeholder="Selling price" required>
+  <input type="number" name="quantity" placeholder="Quantity" required>
+  <button type="submit">Add</button>
+</form>
+
+<form method="POST" action="{{ url_for('index') }}" class="form-row card">
+  <input type="text" name="search" placeholder="Search item..." value="{{ search_query }}">
+  <select name="filter">
+    <option value="">-- Filter --</option>
+    <option value="low_stock" {% if selected_filter == 'low_stock' %}selected{% endif %}>Low Stock (≤ 5)</option>
+    <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>High Profit (≥ 100 {{ CURRENCY }})</option>
+  </select>
+  <button type="submit">Apply</button>
+</form>
+
+<h2>Inventory</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th><a href="{{ url_for('index', sort_by='name', direction='desc' if sort_by=='name' and direction=='asc' else 'asc') }}">Item</a></th>
+      <th><a href="{{ url_for('index', sort_by='quantity', direction='desc' if sort_by=='quantity' and direction=='asc' else 'asc') }}">Quantity</a></th>
+      <th>Buy ({{ CURRENCY }})</th>
+      <th>Sell ({{ CURRENCY }})</th>
+      <th><a href="{{ url_for('index', sort_by='profit', direction='desc' if sort_by=='profit' and direction=='asc' else 'asc') }}">Profit ({{ CURRENCY }})</a></th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in inventory %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ item[1] }}</td>
+      <td>{{ item[4] }}</td>
+      <td>{{ item[2] }}</td>
+      <td>{{ item[3] }}</td>
+      <td>{{ item[5] }}</td>
+      <td class="actions">
+        <a href="{{ url_for('edit_item', item_id=item[0]) }}">✏️</a>
+        <a href="{{ url_for('delete_item', item_id=item[0]) }}">❌</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
 </div>
 
-
-    <!-- ➕ Add Item -->
-    <h2>Add Item ➕</h2>
-    <form action="/add" method="POST">
-        <input type="text" name="name" placeholder="Item name" required>
-        <input type="number" step="0.01" name="buying_price" placeholder="Buying price" required>
-        <input type="number" step="0.01" name="selling_price" placeholder="Selling price" required>
-        <input type="number" name="quantity" placeholder="Quantity" required>
-        <button type="submit">Add</button>
-    </form>
-
-    <!-- 📦 Summary -->
-    <h2>📦💲 Inventory Overview</h2>
-    <p><strong>Total Quantity:</strong> {{ total_quantity }} units</p>
-    <p><strong>Total Profit:</strong> AED {{ total_profit }}</p>
-
-    <!-- 🔍 Filter & Search -->
-    <form method="POST" action="/">
-        <input type="text" name="search" placeholder="Search item..." value="{{ search_query }}">
-        <select name="filter">
-            <option value="">-- Filter --</option>
-            <option value="low_stock" {% if selected_filter == 'low_stock' %}selected{% endif %}>Low Stock (≤ 5)</option>
-            <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>High Profit (≥ 100 AED)</option>
-        </select>
-        <button type="submit">Apply</button>
-    </form>
-
-    <!-- 📋 Inventory Table -->
-    <h2>📋 Inventory List</h2>
-    {% if inventory %}
-    <table>
-        <tr>
-            <th>#</th>
-            <th><a href="/?sort_by=name&direction={{ 'desc' if sort_by == 'name' and direction == 'asc' else 'asc' }}">Item</a></th>
-            <th><a href="/?sort_by=quantity&direction={{ 'desc' if sort_by == 'quantity' and direction == 'asc' else 'asc' }}">Quantity</a></th>
-            <th>Buy (AED)</th>
-            <th>Sell (AED)</th>
-            <th><a href="/?sort_by=profit&direction={{ 'desc' if sort_by == 'profit' and direction == 'asc' else 'asc' }}">Profit (AED)</a></th>
-            <th>Action</th>
-        </tr>
-        {% for item in inventory %}
-        <tr>
-            <td>{{ loop.index }}</td>
-            <td>{{ item[1] }}</td>
-            <td>{{ item[4] }}</td>
-            <td>{{ item[2] }}</td>
-            <td>{{ item[3] }}</td>
-            <td>{{ item[5] }}</td>
-            <td style="text-align: center;">
-                <a href="/edit/{{ item[0] }}" style="margin-right: 8px;">✏️</a>
-                <a href="/delete/{{ item[0] }}">❌</a>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
-    {% else %}
-        <p>No items yet.</p>
-    {% endif %}
-
-    <!-- 📊 Graphs -->
-    <h2>📊 Visual Statistics</h2>
-    <canvas id="topProfitChart" height="200" style="margin-bottom: 40px;"></canvas>
-    <canvas id="lowStockChart" height="200" style="margin-bottom: 40px;"></canvas>
-    <canvas id="stockTrackerChart" height="200"></canvas>
-
-    <!-- 📈 Sales (Last 7 Days) -->
-<div class="chart-block">
-  <canvas id="salesChart" height="200"></canvas>
+<h2>Insights</h2>
+<div class="grid-2">
+  <div class="chart-card"><canvas id="topProfitChart"></canvas></div>
+  <div class="chart-card"><canvas id="lowStockChart"></canvas></div>
+  <div class="chart-card"><canvas id="stockTrackerChart"></canvas></div>
+  <div class="chart-card"><canvas id="salesChart"></canvas></div>
 </div>
 
-    <!-- 📥 Download Excel -->
-    <p style="margin-top: 30px;">
-        <a href="/export" style="background-color: green; color: white; padding: 8px 12px; border-radius: 6px; text-decoration: none;">⬇️ Download Excel</a>
-    </p>
+<script>
+  const currency = "{{ CURRENCY }}";
+  const fmt = new Intl.NumberFormat(undefined, { style:'currency', currencyDisplay:'narrowSymbol', currency: (currency || 'UZS') });
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-    <!-- 📈 Chart Scripts -->
-    <script>
-        const topProfitChart = new Chart(document.getElementById('topProfitChart'), {
-            type: 'bar',
-            data: {
-                labels: {{ top_profit_labels | tojson }},
-                datasets: [{
-                    label: '💰 Top 5 Profitable Items',
-                    data: {{ top_profit_values | tojson }},
-                    backgroundColor: 'rgba(54, 162, 235, 0.6)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 2,
-                    borderRadius: 6
-                }]
-            },
-            options: {
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Top 5 Profitable Items',
-                        font: { size: 18 }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: ctx => `Profit: AED ${ctx.raw}`
-                        }
-                    }
-                },
-                animation: {
-                    duration: 1000,
-                    easing: 'easeOutBounce'
-                },
-                scales: { y: { beginAtZero: true } }
-            }
-        });
-
-        const salesChart = new Chart(document.getElementById('salesChart'), {
-  type: 'line',
-  data: {
-    labels: {{ sales_labels | tojson }},
-    datasets: [{
-      label: '📆 Daily Revenue (UZS)',
-      data: {{ sales_values | tojson }},
-      fill: true,
-      borderColor: 'rgba(40,167,69,1)',
-      backgroundColor: 'rgba(40,167,69,0.2)',
-      borderWidth: 2,
-      tension: 0.3,
-      pointRadius: 3
-    }]
-  },
-  options: {
-    plugins: {
-      title: { display: true, text: 'Last 7 Days Revenue', font: { size: 18 } },
-      tooltip: { callbacks: { label: c => `Revenue: UZS ${c.raw}` } }
-    },
-    scales: { y: { beginAtZero: true } }
+  function makeGradient(ctx, c1, c2){
+    const g = ctx.createLinearGradient(0,0,0,300);
+    g.addColorStop(0, c1); g.addColorStop(1, c2); return g;
   }
-});
-    
 
-    <!-- 🔻 Footer -->
-    <footer style="text-align: center; margin-top: 40px; color: #777;">
-        © 2025 Jasurbek Systems. All rights reserved.
-    </footer>
+  function baseOptions(title){
+    const textColor = css('--muted');
+    const gridColor = css('--grid');
+    return {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{ labels:{ color:textColor, usePointStyle:true, pointStyle:'circle' } },
+        title:{ display: !!title, text:title, color:textColor, padding:18 }
+      },
+      scales:{
+        x:{ grid:{ display:false }, ticks:{ color:textColor } },
+        y:{ grid:{ color:gridColor, drawBorder:false }, ticks:{ color:textColor, callback:v=>fmt.format(v) } }
+      },
+      animation:{ duration:600, easing:'easeOutQuart' }
+    };
+  }
 
-</body>
-</html>
+  function buildCharts(){
+    const primary = css('--primary');
+    const cyan = css('--cyan');
+
+    (function(){
+      const el = document.getElementById('topProfitChart'); if(!el) return;
+      const ctx = el.getContext('2d');
+      new Chart(ctx,{ type:'bar', data:{ labels: {{ top_profit_labels|tojson }}, datasets:[{
+        label:'Top 5 Profitable Items', data: {{ top_profit_values|tojson }},
+        backgroundColor: makeGradient(ctx, primary, 'rgba(96,165,250,.25)'), borderRadius: 10
+      }]}, options: baseOptions('Top 5 Profitable Items') });
+    })();
+
+    (function(){
+      const el = document.getElementById('lowStockChart'); if(!el) return;
+      const ctx = el.getContext('2d');
+      new Chart(ctx,{ type:'bar', data:{ labels: {{ low_stock_labels|tojson }}, datasets:[{
+        label:'Lowest Stock (5)', data: {{ low_stock_values|tojson }},
+        backgroundColor: makeGradient(ctx, cyan, 'rgba(34,211,238,.25)'), borderRadius: 10
+      }]}, options: baseOptions('Lowest Stock (5)') });
+    })();
+
+    (function(){
+      const el = document.getElementById('stockTrackerChart'); if(!el) return;
+      const ctx = el.getContext('2d');
+      new Chart(ctx,{ type:'line', data:{ labels: {{ stock_labels|tojson }}, datasets:[{
+        label:'Stock Tracker', data: {{ stock_values|tojson }}, tension:.35, fill:true,
+        backgroundColor: makeGradient(ctx, 'rgba(96,165,250,.25)', 'rgba(96,165,250,.05)'),
+        borderColor: css('--primary'), pointRadius: 2
+      }]}, options: baseOptions('Stock Tracker') });
+    })();
+
+    (function(){
+      const el = document.getElementById('salesChart'); if(!el) return;
+      const ctx = el.getContext('2d');
+      new Chart(ctx,{ type:'line', data:{ labels: {{ sales_labels|tojson }}, datasets:[{
+        label:`Daily Revenue (${currency})`, data: {{ sales_values|tojson }}, tension:.35, fill:true,
+        backgroundColor: makeGradient(ctx, 'rgba(34,197,94,.20)', 'rgba(34,197,94,.05)'),
+        borderColor: css('--green'), pointRadius: 2
+      }]}, options: baseOptions('Revenue — Last 7 Days') });
+    })();
+  }
+
+  buildCharts();
+  document.addEventListener('vanta-theme-change', buildCharts);
+</script>
+
+<p class="mt"><a href="{{ url_for('export_excel') }}" class="btn btn-green">⬇️ Download Excel</a></p>
+
+{% endblock %}

@@ -1,14 +1,46 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
-import os
-import sqlite3
-import io
-import openpyxl
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
+import os, sqlite3, io, openpyxl
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Secret key for session management
 
-# ---- Admin accounts (supports multiple) ----
-# Format: "user1:pass1,user2:pass2"
+# Stable secret for local; override in prod with ENV SECRET_KEY
+app.secret_key = os.getenv("SECRET_KEY", "dev-only-secret-change-me")
+
+# --- Version helpers ---
+def get_version():
+    try:
+        return open("VERSION", encoding="utf-8").read().strip()
+    except Exception:
+        return "dev"
+
+@app.context_processor
+def inject_version():
+    return {"APP_VERSION": get_version()}
+
+# --- Health route ---
+@app.route("/__health", methods=["GET"]) 
+def __health():
+    return jsonify(status="ok", version=get_version()), 200
+
+# --- Environment-aware config ---
+ENV = os.getenv("ENV", "dev").lower()
+if ENV == "dev":
+    app.config.update(
+        DEBUG=True,
+        TEMPLATES_AUTO_RELOAD=True,
+        SERVER_NAME=None,             # critical for localhost
+        SESSION_COOKIE_SECURE=False,  # allow cookies on http
+        SESSION_COOKIE_SAMESITE="Lax",
+    )
+else:
+    app.config.update(
+        TEMPLATES_AUTO_RELOAD=False,
+        SEND_FILE_MAX_AGE_DEFAULT=31536000,
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+    )
+
+# --- Admin accounts ---
 ADMIN_USERS_ENV = os.environ.get("ADMIN_USERS")
 if ADMIN_USERS_ENV:
     ADMIN_USERS = dict(pair.split(":", 1) for pair in ADMIN_USERS_ENV.split(","))
@@ -18,11 +50,9 @@ else:
         "jasur": "jasur2025",
     }
 
-# ===== DB Connection =====
-DB_PATH = os.environ.get(
-    "DB_PATH",
-    os.path.join(os.getcwd(), "inventory.db")  # default for local dev
-)
+# --- Paths / DB ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "inventory.db"))
 
 # =========================
 # DB helpers + init
@@ -40,8 +70,8 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # Create table if missing (without currency column first)
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE,
@@ -51,7 +81,8 @@ def init_db():
             profit REAL
             -- 'currency' will be added if missing
         )
-    """)
+        """
+    )
 
     # Add 'currency' column if missing
     c.execute("PRAGMA table_info(inventory)")
@@ -69,7 +100,8 @@ def init_sales_table():
     """Ensure sales table exists."""
     conn = get_db()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         CREATE TABLE IF NOT EXISTS sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             item_id INTEGER NOT NULL,
@@ -79,7 +111,8 @@ def init_sales_table():
             sold_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (item_id) REFERENCES inventory(id) ON DELETE CASCADE
         )
-    """)
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -87,8 +120,6 @@ def init_sales_table():
 with app.app_context():
     init_db()
     init_sales_table()
-
-
 
 # 🔎 Fetch inventory
 def get_inventory():
@@ -112,16 +143,21 @@ def index():
 
     inventory = get_inventory()
 
+    # Currency code (from first row if present)
+    CURRENCY = (inventory[0][6] if inventory and len(inventory[0]) > 6 else 'UZS')
+
     # 📈 Today's revenue & profit
     conn = get_db()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         SELECT 
             COALESCE(SUM(qty * sell_price), 0) AS revenue,
             COALESCE(SUM(profit), 0) AS profit
         FROM sales
         WHERE DATE(sold_at) = DATE('now', 'localtime')
-    """)
+        """
+    )
     today_revenue, today_profit = c.fetchone()
     conn.close()
 
@@ -151,7 +187,8 @@ def index():
     # 📊 Last 7 days revenue
     conn = get_db()
     c = conn.cursor()
-    c.execute("""
+    c.execute(
+        """
         WITH days AS (
           SELECT DATE('now','localtime','-6 day') AS d
           UNION ALL SELECT DATE('now','localtime','-5 day')
@@ -168,12 +205,17 @@ def index():
                  WHERE DATE(s.sold_at)=d
                ), 0) AS revenue
         FROM days;
-    """)
+        """
+    )
     rows = c.fetchall()
     conn.close()
-    
+
     sales_labels = [r[0] for r in rows]
     sales_values = [r[1] for r in rows]
+
+    # Stock tracker
+    stock_labels = [item[1] for item in inventory]
+    stock_values = [item[4] for item in inventory]
 
     return render_template(
         'index.html',
@@ -191,7 +233,10 @@ def index():
         today_revenue=today_revenue,
         today_profit=today_profit,
         sales_labels=sales_labels,
-        sales_values=sales_values
+        sales_values=sales_values,
+        stock_labels=stock_labels,
+        stock_values=stock_values,
+        CURRENCY=CURRENCY,
     )
 
 # ➕ Add Item
@@ -208,10 +253,13 @@ def add_item():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('''
+    cursor.execute(
+        '''
         INSERT INTO inventory (name, buying_price, selling_price, quantity, profit)
         VALUES (?, ?, ?, ?, ?)
-    ''', (name.capitalize(), buying_price, selling_price, quantity, profit))
+        ''',
+        (name.capitalize(), buying_price, selling_price, quantity, profit),
+    )
     conn.commit()
     conn.close()
 
@@ -246,10 +294,13 @@ def sell_item():
 
     profit = (sell_price - buy_price) * qty
 
-    c.execute("""
+    c.execute(
+        """
         INSERT INTO sales (item_id, qty, sell_price, profit)
         VALUES (?, ?, ?, ?)
-    """, (item_id, qty, sell_price, profit))
+        """,
+        (item_id, qty, sell_price, profit),
+    )
 
     c.execute("UPDATE inventory SET quantity = quantity - ? WHERE id = ?", (qty, item_id))
     conn.commit()
@@ -307,11 +358,14 @@ def edit_item(item_id):
         selling_price = float(request.form['selling_price'])
         profit = (selling_price - buying_price) * quantity
 
-        cursor.execute('''
+        cursor.execute(
+            '''
             UPDATE inventory
             SET name = ?, buying_price = ?, selling_price = ?, quantity = ?, profit = ?
             WHERE id = ?
-        ''', (name.capitalize(), buying_price, selling_price, quantity, profit, item_id))
+            ''',
+            (name.capitalize(), buying_price, selling_price, quantity, profit, item_id),
+        )
         conn.commit()
         conn.close()
 
@@ -336,8 +390,8 @@ def export_excel():
     sheet.title = "Inventory"
     headers = ["ID", "Name", "Buying Price", "Selling Price", "Quantity", "Profit", "Currency"]
     sheet.append(headers)
-    for item in inventory:
-        sheet.append(item)
+    for row in inventory:
+        sheet.append(list(row))
 
     file_stream = io.BytesIO()
     workbook.save(file_stream)
@@ -347,9 +401,10 @@ def export_excel():
         file_stream,
         as_attachment=True,
         download_name="inventory_export.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-# 🚀 Run App
-if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+# 🚀 Run App (Local only)
+if __name__ == "__main__":
+    # Prefer Flask CLI for dev; this is just a local fallback
+    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=True)

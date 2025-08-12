@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Jasurbek Inventory{% endblock %}</title>
+  <script>
+    (function(){
+      try {
+        var t = localStorage.getItem('vanta-theme') || 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch(e) {}
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ APP_VERSION }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="topbar card container">
+    <div class="brand">
+      <span class="cube">📦</span>
+      <strong>Jasurbek Inventory</strong>
+      <span class="muted">v{{ APP_VERSION }}</span>
+    </div>
+    <div class="actions-row">
+      <button id="themeToggle" class="btn btn-outline" title="Toggle theme">Toggle theme</button>
+      <a href="{{ url_for('logout') }}" class="btn btn-red">Logout</a>
+    </div>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-area container">
+        {% for category, msg in messages %}
+          <div class="flash {{ category }}">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer container">Made with ⚡ by Vanta — Version {{ APP_VERSION }}</footer>
+
+  <script>
+    const toggle = document.getElementById('themeToggle');
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        const root = document.documentElement;
+        const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        try { localStorage.setItem('vanta-theme', next); } catch(e) {}
+        document.dispatchEvent(new CustomEvent('vanta-theme-change', {detail:{theme:next}}));
+      });
+    }
+  </script>
+</body>
+</html>
