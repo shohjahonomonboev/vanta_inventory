@@ -54,10 +54,46 @@ def is_sqlite() -> bool:
     """Helper for app.py to check if current DB is SQLite."""
     return DATABASE_URL.startswith("sqlite")
 
-def ensure_schema():
-    is_pg = DATABASE_URL.startswith("postgresql")
-    stmts = []
+# put near the top-level, with the other globals
+_schema_checked = False
 
+def ensure_schema():
+    """
+    Fast path: if both tables already exist, skip DDL entirely.
+    Works for Postgres and SQLite.
+    """
+    global _schema_checked
+    if _schema_checked:
+        return
+
+    is_pg = DATABASE_URL.startswith("postgresql")
+
+    # ------- existence check -------
+    try:
+        with engine.connect() as conn:
+            if is_pg:
+                row = conn.execute(text("""
+                    SELECT
+                      (to_regclass('public.inventory') IS NOT NULL) AS inv_exists,
+                      (to_regclass('public.sales')     IS NOT NULL) AS sales_exists
+                """)).one()
+                if bool(row[0]) and bool(row[1]):
+                    _schema_checked = True
+                    return
+            else:
+                row = conn.execute(text("""
+                    SELECT COUNT(*) FROM sqlite_master
+                    WHERE type='table' AND name IN ('inventory','sales')
+                """)).one()
+                if int(row[0]) == 2:
+                    _schema_checked = True
+                    return
+    except Exception:
+        # If the check itself fails (e.g., cold DB), just fall through to DDL path.
+        pass
+
+    # ------- DDL path (only if missing) -------
+    stmts = []
     if not is_pg:
         # SQLite: enable FKs
         stmts.append("PRAGMA foreign_keys = ON;")
@@ -116,7 +152,7 @@ def ensure_schema():
             """,
         ]
 
-    # common indexes
+    # common indexes (safe to run repeatedly)
     stmts += [
         "CREATE INDEX IF NOT EXISTS idx_inventory_name ON inventory(name);",
         "CREATE INDEX IF NOT EXISTS idx_inventory_qty  ON inventory(quantity);",
@@ -127,6 +163,9 @@ def ensure_schema():
     with engine.begin() as conn:
         for s in stmts:
             conn.exec_driver_sql(s)
+
+    _schema_checked = True
+
 
 def db_all(sql, params=None):
     """Return all rows for a query."""
