@@ -31,14 +31,8 @@ def make_engine():
             kwargs = {"pool_pre_ping": True}
 
             if DATABASE_URL.startswith("postgresql"):
-                # Only for Postgres
-                kwargs.update(
-                    pool_recycle=1800,
-                    pool_size=5,
-                    max_overflow=10,
-                )
+                kwargs.update(pool_recycle=1800, pool_size=5, max_overflow=10)
             elif DATABASE_URL.startswith("sqlite"):
-                # SQLite needs this when used with threaded servers
                 kwargs.update(connect_args={"check_same_thread": False})
 
             eng = create_engine(DATABASE_URL, **kwargs)
@@ -56,3 +50,60 @@ def make_engine():
     raise last_err
 
 engine = make_engine()
+
+def ensure_schema():
+    stmts = []
+    if DATABASE_URL.startswith("sqlite"):
+        stmts.append("PRAGMA foreign_keys = ON;")
+
+    stmts += [
+        """
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            buying_price REAL NOT NULL DEFAULT 0,
+            selling_price REAL NOT NULL DEFAULT 0,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            profit REAL NOT NULL DEFAULT 0,
+            currency TEXT DEFAULT 'UZS',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            qty INTEGER NOT NULL,
+            sell_price REAL NOT NULL,
+            profit REAL NOT NULL,
+            sold_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_id) REFERENCES inventory(id) ON DELETE CASCADE
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_inventory_name ON inventory(name);",
+        "CREATE INDEX IF NOT EXISTS idx_inventory_qty  ON inventory(quantity);",
+        "CREATE INDEX IF NOT EXISTS idx_sales_item     ON sales(item_id);",
+        "CREATE INDEX IF NOT EXISTS idx_sales_date     ON sales(sold_at);",
+    ]
+
+    with engine.begin() as conn:
+        for s in stmts:
+            conn.exec_driver_sql(s)
+
+def db_all(sql, params=None):
+    """Return all rows for a query."""
+    with engine.connect() as conn:
+        result = conn.execute(text(sql), params or {})
+        return [tuple(row) for row in result]
+
+def db_one(sql, params=None):
+    """Return a single row or None."""
+    with engine.connect() as conn:
+        result = conn.execute(text(sql), params or {})
+        row = result.fetchone()
+        return tuple(row) if row else None
+
+def db_exec(sql, params=None):
+    """Execute a query (INSERT, UPDATE, DELETE)."""
+    with engine.begin() as conn:
+        conn.execute(text(sql), params or {})

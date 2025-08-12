@@ -36,7 +36,17 @@ else:
     ADMIN_USERS = {"vanta": "beastmode", "jasur": "jasur2025"}
 
 # Ensure schema (works for both SQLite & Postgres)
-db.ensure_schema()
+_initialized = False  # Flag so it runs only once
+
+@app.before_request
+def _init_db_once():
+    global _initialized
+    if not _initialized:
+        try:
+            db.ensure_schema()  # Create tables if missing
+        finally:
+            _initialized = True
+
 
 # ===== Helpers =====
 
