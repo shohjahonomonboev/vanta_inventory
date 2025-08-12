@@ -52,34 +52,69 @@ def make_engine():
 engine = make_engine()
 
 def ensure_schema():
+    is_pg = DATABASE_URL.startswith("postgresql")
     stmts = []
-    if DATABASE_URL.startswith("sqlite"):
+
+    if not is_pg:
+        # SQLite: enable FKs
         stmts.append("PRAGMA foreign_keys = ON;")
 
+    if not is_pg:
+        # ---------- SQLite DDL ----------
+        stmts += [
+            """
+            CREATE TABLE IF NOT EXISTS inventory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                buying_price REAL NOT NULL DEFAULT 0,
+                selling_price REAL NOT NULL DEFAULT 0,
+                quantity INTEGER NOT NULL DEFAULT 0,
+                profit REAL NOT NULL DEFAULT 0,
+                currency TEXT DEFAULT 'UZS',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS sales (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                qty INTEGER NOT NULL,
+                sell_price REAL NOT NULL,
+                profit REAL NOT NULL,
+                sold_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_id) REFERENCES inventory(id) ON DELETE CASCADE
+            );
+            """,
+        ]
+    else:
+        # ---------- Postgres DDL ----------
+        stmts += [
+            """
+            CREATE TABLE IF NOT EXISTS inventory (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                buying_price NUMERIC(14,2) NOT NULL DEFAULT 0,
+                selling_price NUMERIC(14,2) NOT NULL DEFAULT 0,
+                quantity INTEGER NOT NULL DEFAULT 0,
+                profit NUMERIC(14,2) NOT NULL DEFAULT 0,
+                currency TEXT DEFAULT 'UZS',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS sales (
+                id SERIAL PRIMARY KEY,
+                item_id INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+                qty INTEGER NOT NULL,
+                sell_price NUMERIC(14,2) NOT NULL,
+                profit NUMERIC(14,2) NOT NULL,
+                sold_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """,
+        ]
+
+    # common indexes
     stmts += [
-        """
-        CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            buying_price REAL NOT NULL DEFAULT 0,
-            selling_price REAL NOT NULL DEFAULT 0,
-            quantity INTEGER NOT NULL DEFAULT 0,
-            profit REAL NOT NULL DEFAULT 0,
-            currency TEXT DEFAULT 'UZS',
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-        """,
-        """
-        CREATE TABLE IF NOT EXISTS sales (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id INTEGER NOT NULL,
-            qty INTEGER NOT NULL,
-            sell_price REAL NOT NULL,
-            profit REAL NOT NULL,
-            sold_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_id) REFERENCES inventory(id) ON DELETE CASCADE
-        );
-        """,
         "CREATE INDEX IF NOT EXISTS idx_inventory_name ON inventory(name);",
         "CREATE INDEX IF NOT EXISTS idx_inventory_qty  ON inventory(quantity);",
         "CREATE INDEX IF NOT EXISTS idx_sales_item     ON sales(item_id);",
@@ -89,6 +124,7 @@ def ensure_schema():
     with engine.begin() as conn:
         for s in stmts:
             conn.exec_driver_sql(s)
+
 
 def db_all(sql, params=None):
     """Return all rows for a query."""
