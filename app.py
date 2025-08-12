@@ -1,5 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 import os, io, openpyxl
+import zipfile, datetime, json
+import psycopg2
+from urllib.parse import urlparse
+
 import database_sqlalchemy as db
 from database_sqlalchemy import ensure_schema
 
@@ -56,8 +60,10 @@ if ADMIN_USERS_ENV:
 else:
     ADMIN_USERS = {"vanta": "beastmode", "jasur": "jasur2025"}
 
-
 # ===== Helpers =====
+def is_logged_in():
+    return bool(session.get("logged_in"))
+
 def get_inventory():
     rows = db.db_all(
         """
@@ -72,7 +78,7 @@ def get_inventory():
 # 🏠 Home
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    if not session.get('logged_in'):
+    if not is_logged_in():
         return redirect(url_for('login'))
 
     search_query = request.form.get('search', '').strip().lower()
@@ -186,7 +192,7 @@ def index():
 # ➕ Add Item
 @app.post('/add')
 def add_item():
-    if not session.get('logged_in'):
+    if not is_logged_in():
         return redirect(url_for('login'))
 
     name = request.form['name'].strip().lower()
@@ -208,7 +214,7 @@ def add_item():
 # 💵 Sell Item
 @app.post('/sell')
 def sell_item():
-    if not session.get('logged_in'):
+    if not is_logged_in():
         return redirect(url_for('login'))
 
     item_id = int(request.form['item_id'])
@@ -242,7 +248,7 @@ def sell_item():
 # ❌ Delete Item
 @app.get('/delete/<int:item_id>')
 def delete_item(item_id):
-    if not session.get('logged_in'):
+    if not is_logged_in():
         return redirect(url_for('login'))
     db.db_exec('DELETE FROM inventory WHERE id = :id', {"id": item_id})
     flash("Item deleted successfully!", "warning")
@@ -256,6 +262,7 @@ def login():
         password = request.form['password']
         if ADMIN_USERS.get(username) == password:
             session['logged_in'] = True
+            session['user'] = username  # store who logged in
             return redirect(url_for('index'))
         return render_template('login.html', error='Invalid credentials')
     return render_template('login.html')
@@ -263,12 +270,13 @@ def login():
 @app.get('/logout')
 def logout():
     session.pop('logged_in', None)
+    session.pop('user', None)
     return redirect(url_for('login'))
 
 # ✏️ Edit Item
 @app.route('/edit/<int:item_id>', methods=['GET', 'POST'])
 def edit_item(item_id):
-    if not session.get('logged_in'):
+    if not is_logged_in():
         return redirect(url_for('login'))
 
     if request.method == 'POST':
@@ -295,7 +303,7 @@ def edit_item(item_id):
 # 📤 Export to Excel
 @app.get('/export')
 def export_excel():
-    if not session.get('logged_in'):
+    if not is_logged_in():
         return redirect(url_for('login'))
 
     inventory = get_inventory()
@@ -318,6 +326,66 @@ def export_excel():
         download_name="inventory_export.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+# 📦 One-click data backup (ZIP of CSVs for every public table)
+@app.get("/admin/backup")
+def admin_backup():
+    if not is_logged_in():
+        return redirect(url_for('login'))
+
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        return "DATABASE_URL not set", 500
+
+    # Normalize and parse DATABASE_URL
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    parsed = urlparse(db_url)
+    user = parsed.username
+    pwd  = parsed.password
+    host = parsed.hostname
+    port = parsed.port or 5432
+    dbname = parsed.path.lstrip("/")
+
+    # Connect using psycopg2 (read-only operations)
+    conn = psycopg2.connect(dbname=dbname, user=user, password=pwd, host=host, port=port)
+    conn.autocommit = True
+
+    # Get list of public tables
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema='public' AND table_type='BASE TABLE'
+            ORDER BY table_name;
+        """)
+        tables = [r[0] for r in cur.fetchall()]
+
+    # Create ZIP in memory
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # metadata
+        meta = {
+            "generated_at_utc": ts,
+            "database": dbname,
+            "host": host,
+            "tables": tables,
+            "note": "Data-only backup (CSV per table). Schema is ensured by the app at startup."
+        }
+        zf.writestr("metadata.json", json.dumps(meta, indent=2))
+
+        # each table as CSV
+        for t in tables:
+            with conn.cursor() as c2:
+                s = io.StringIO()
+                c2.copy_expert(f'COPY (SELECT * FROM "{t}") TO STDOUT WITH CSV HEADER', s)
+                zf.writestr(f"{t}.csv", s.getvalue())
+
+    conn.close()
+    buf.seek(0)
+    fname = f"vanta_inventory_backup_{ts}.zip"
+    return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=fname)
 
 # Local dev entry
 if __name__ == "__main__":

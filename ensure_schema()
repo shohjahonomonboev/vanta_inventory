@@ -1,0 +1,55 @@
+# --- schema bootstrap ---
+from sqlalchemy import text
+
+def ensure_schema():
+    """Create required tables if they don't exist."""
+    stmts = []
+
+    # SQLite: enable foreign keys
+    if DATABASE_URL.startswith("sqlite"):
+        stmts.append("PRAGMA foreign_keys = ON;")
+
+    stmts += [
+        # Inventory items
+        """
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category TEXT,
+            buy_price REAL NOT NULL DEFAULT 0,
+            sell_price REAL NOT NULL DEFAULT 0,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """,
+        # Sales linked to inventory
+        """
+        CREATE TABLE IF NOT EXISTS sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL,
+            quantity INTEGER NOT NULL,
+            total_price REAL NOT NULL,
+            profit REAL NOT NULL,
+            sold_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (item_id) REFERENCES inventory(id) ON DELETE CASCADE
+        );
+        """,
+        # Optional currency table (safe no-op if unused)
+        """
+        CREATE TABLE IF NOT EXISTS currency (
+            code TEXT PRIMARY KEY,
+            symbol TEXT,
+            rate REAL
+        );
+        """,
+        # Helpful indexes
+        "CREATE INDEX IF NOT EXISTS idx_inventory_name ON inventory(name);",
+        "CREATE INDEX IF NOT EXISTS idx_inventory_cat ON inventory(category);",
+        "CREATE INDEX IF NOT EXISTS idx_inventory_qty ON inventory(quantity);",
+        "CREATE INDEX IF NOT EXISTS idx_sales_item ON sales(item_id);",
+        "CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(sold_at);",
+    ]
+
+    with engine.begin() as conn:
+        for s in stmts:
+            conn.exec_driver_sql(s)

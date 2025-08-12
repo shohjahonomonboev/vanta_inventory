@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 
 def normalize_url(url: str | None) -> str | None:
+    """Normalize DB URL (fix old postgres:// scheme)."""
     if not url:
         return None
     url = url.strip()
@@ -13,6 +14,7 @@ def normalize_url(url: str | None) -> str | None:
         url = url.replace("postgres://", "postgresql+psycopg2://", 1)
     return url
 
+# Detect DB URL
 _raw_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("DB_URL")
 DATABASE_URL = normalize_url(_raw_url)
 
@@ -21,9 +23,15 @@ if not DATABASE_URL:
     DATABASE_URL = f"sqlite:///{sqlite_path.as_posix()}"
     print(f"DB: No DATABASE_URL found. Using SQLite at {sqlite_path}")
 else:
-    print("DB: Using Postgres from env (masked).")
+    # Mask password in logs for security
+    if DATABASE_URL.startswith("postgresql"):
+        safe_url = DATABASE_URL.split("@")[-1]  # show only host/db
+        print(f"DB: Using Postgres at {safe_url} (password hidden)")
+    else:
+        print(f"DB: Using custom DB URL ({DATABASE_URL.split('://',1)[0]})")
 
 def make_engine():
+    """Create SQLAlchemy engine with retries for cold starts."""
     last_err = None
     for attempt in range(6):
         try:
@@ -54,7 +62,7 @@ def is_sqlite() -> bool:
     """Helper for app.py to check if current DB is SQLite."""
     return DATABASE_URL.startswith("sqlite")
 
-# put near the top-level, with the other globals
+# Internal flag to skip schema creation if already done
 _schema_checked = False
 
 def ensure_schema():
@@ -89,7 +97,7 @@ def ensure_schema():
                     _schema_checked = True
                     return
     except Exception:
-        # If the check itself fails (e.g., cold DB), just fall through to DDL path.
+        # If the check itself fails (cold DB), fall through to DDL
         pass
 
     # ------- DDL path (only if missing) -------
@@ -152,7 +160,7 @@ def ensure_schema():
             """,
         ]
 
-    # common indexes (safe to run repeatedly)
+    # Common indexes (safe to run repeatedly)
     stmts += [
         "CREATE INDEX IF NOT EXISTS idx_inventory_name ON inventory(name);",
         "CREATE INDEX IF NOT EXISTS idx_inventory_qty  ON inventory(quantity);",
@@ -166,6 +174,7 @@ def ensure_schema():
 
     _schema_checked = True
 
+# --- DB helper functions ---
 
 def db_all(sql, params=None):
     """Return all rows for a query."""

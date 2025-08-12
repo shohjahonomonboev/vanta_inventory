@@ -1,0 +1,39 @@
+Vanta Inventory — Run Notes
+
+A) LOCAL DEV (auto-reload)
+--------------------------------
+$env:FLASK_APP="app.py"
+$env:FLASK_ENV="development"
+flask run --debug
+# Open: http://127.0.0.1:5000
+# If CSS looks old: Ctrl+F5
+
+B) LOCAL PROD JOB (no auto-reload)
+--------------------------------
+# Restart after code changes:
+Get-Job -Name vanta_prod -EA SilentlyContinue | Stop-Job
+Get-Job -Name vanta_prod -EA SilentlyContinue | Remove-Job
+.\start-prod.ps1
+
+# (If alias added)
+rp
+
+C) RENDER DEPLOY (live)
+--------------------------------
+# Push new code → Render auto-deploys
+git add -A
+git commit -m "update"
+git push
+
+# Bust CSS cache (version bump)
+echo 1.0.3 > VERSION
+git add VERSION
+git commit -m "Version bump 1.0.3"
+git push
+
+D) Keep-Alive (already set)
+--------------------------------
+# Runs every 5 min on GitHub Actions
+# Workflow: .github/workflows/keep_alive.yml
+# Pings: / and /login
+# Manually run: GitHub → Actions → Keep Vanta Inventory Awake → Run workflow
