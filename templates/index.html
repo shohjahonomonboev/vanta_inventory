@@ -1,42 +1,57 @@
 {% extends "base.html" %}
-{% block title %}Jasurbek Inventory Dashboard{% endblock %}
+{% block title %}{{ t("app_name") }}{% endblock %}
 {% block content %}
 
 <div class="logo-container">
   <img src="{{ url_for('static', filename='jasurbek_logo.png') }}" class="logo" alt="Jasurbek Logo">
 </div>
 
-<h1>Jasurbek Inventory System</h1>
+<h1>{{ t("app_name") }}</h1>
 <p class="subtitle">Welcome back, Commander.</p>
 
+<!-- KPIs -->
 <div class="kpis">
-  <div class="kpi kpi-green"><strong>Today's Revenue</strong><br> {{ CURRENCY }} {{ today_revenue | money }}</div>
-  <div class="kpi kpi-blue"><strong>Today's Profit</strong><br> {{ CURRENCY }} {{ today_profit   | money }}</div>
+  <div class="kpi kpi-green">
+    <strong>{{ t("todays_revenue") }}</strong><br>
+    {{ fmt_money(today_revenue) }}
+  </div>
+  <div class="kpi kpi-blue">
+    <strong>{{ t("todays_profit") }}</strong><br>
+    {{ fmt_money(today_profit) }}
+  </div>
 </div>
 
-<h2>Sell Item</h2>
+<!-- Sell Item -->
+<h2>{{ t("sell_item") }}</h2>
 <form action="{{ url_for('sell_item') }}" method="POST" class="form-row card">
   <select name="item_id" required id="sell-item-select">
     {% for item in inventory %}
-      <option value="{{ item[0] }}">{{ item[1] }} — Stock: {{ item[4] }} — Sell: {{ item[3] | money }}</option>
+      {# item: (id, name, buying_price, selling_price, quantity, profit, currency) #}
+      <option value="{{ item[0] }}">
+        {{ item[1] }} — {{ t('stock') }}: {{ item[4] }} — {{ t('sell') }}: {{ fmt_money_auto(item[3], from_curr='UZS') }}
+      </option>
     {% endfor %}
   </select>
-  <input type="number" name="qty" placeholder="Qty" min="1" required>
-  <input type="text" name="sell_price" id="sell-price" data-money data-decimals="0" placeholder="Sell Price ({{ CURRENCY }})" required>
-  <button type="submit">Sell</button>
+  <input type="number" name="qty" placeholder="{{ t('qty') }}" min="1" required>
+  <input type="text" name="sell_price" id="sell-price" data-money data-decimals="0" placeholder="{{ t('sell_price') }} ({{ USER_CURR }})" required>
+  <button type="submit">{{ t('sell') }}</button>
 </form>
 
 <script>
-  // raw numbers (no commas) -> formatted by money-input script below
-  const priceMap = { {% for item in inventory %}"{{ item[0] }}": {{ item[3] | float }} ,{% endfor %} };
+  // Prefill sell price with converted value to USER_CURR
+  const priceMap = {
+    {% for item in inventory -%}
+      "{{ item[0] }}": {{ convert(item[3], 'UZS', USER_CURR) | float }},
+    {%- endfor %}
+  };
   const sel = document.getElementById('sell-item-select');
   const priceInput = document.getElementById('sell-price');
   if (sel && priceInput) {
     const setPrice = () => {
       const v = priceMap[sel.value];
       if (v != null) {
-        priceInput.value = String(Math.round(v));
-        priceInput.dispatchEvent(new Event('input')); // format to 1,000,000
+        priceInput.value = String(Math.round(Number(v)));
+        priceInput.dispatchEvent(new Event('input'));
       } else {
         priceInput.value = "";
       }
@@ -46,59 +61,135 @@
   }
 </script>
 
-<h2>Add Item</h2>
+<!-- Add Item -->
+<h2>{{ t("add_item") }}</h2>
 <form action="{{ url_for('add_item') }}" method="POST" class="form-row card">
-  <input type="text" name="name" placeholder="Item name" required>
-  <input type="text" name="buying_price"  data-money data-decimals="0" placeholder="Buying price" required>
-  <input type="text" name="selling_price" data-money data-decimals="0" placeholder="Selling price" required>
-  <input type="number" name="quantity" placeholder="Quantity" required>
-  <button type="submit">Add</button>
+  <input type="text" name="name" placeholder="{{ t('item') }}" required>
+  <input type="text" name="buying_price"  data-money data-decimals="0" placeholder="{{ t('buy') }}" required>
+  <input type="text" name="selling_price" data-money data-decimals="0" placeholder="{{ t('sell') }}" required>
+  <input type="number" name="quantity" placeholder="{{ t('quantity') }}" required>
+  <button type="submit">{{ t('add') }}</button>
 </form>
 
-<form method="POST" action="{{ url_for('index') }}" class="form-row card">
-  <input type="text" name="search" placeholder="Search item..." value="{{ search_query }}">
+<!-- Filters -->
+<form method="GET" action="{{ url_for('index') }}" class="form-row card">
+  <input type="text" name="search" placeholder="{{ t('search_item') }}..." value="{{ search_query }}">
   <select name="filter">
-    <option value="">-- Filter --</option>
-    <option value="low_stock" {% if selected_filter == 'low_stock' %}selected{% endif %}>Low Stock (≤ 5)</option>
-    <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>High Profit (≥ 100 {{ CURRENCY }})</option>
+    <option value="">{{ t('filter') }} — </option>
+    <option value="low_stock"  {% if selected_filter == 'low_stock'  %}selected{% endif %}>{{ t('low_stock') }} (≤ 5)</option>
+    <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>
+      {{ t('high_profit') }} (≥ {{ fmt_money_auto(100, from_curr='UZS') }})
+    </option>
   </select>
-  <button type="submit">Apply</button>
+  <button type="submit">{{ t('apply') }}</button>
 </form>
 
-<h2>Inventory</h2>
+<!-- Language & Currency Panel -->
+<div class="prefs-card">
+  <h3 class="prefs-title">{{ t("lang_curr") }}</h3>
+
+  <form method="POST" action="{{ url_for('set_prefs') }}" class="prefs-form">
+    <label>{{ t("language") }}</label>
+    <select name="lang">
+      <option value="en" {{ 'selected' if USER_LANG=='en' else '' }}>English</option>
+      <option value="uz" {{ 'selected' if USER_LANG=='uz' else '' }}>Uzbek</option>
+    </select>
+
+    <label>{{ t("currency") }}</label>
+    <select name="curr" id="curr">
+      <option value="USD" {{ 'selected' if USER_CURR=='USD' else '' }}>USD ($)</option>
+      <option value="AED" {{ 'selected' if USER_CURR=='AED' else '' }}>AED (د.إ)</option>
+      <option value="UZS" {{ 'selected' if USER_CURR=='UZS' else '' }}>UZS (so'm)</option>
+    </select>
+
+    <div class="prefs-actions">
+      <button type="submit">{{ t("save") }}</button>
+      <button type="button" id="auto-detect">{{ t("auto_detect") }}</button>
+    </div>
+  </form>
+
+  <small id="rateDisplay">{{ t("live_rates_loading") }}</small>
+</div>
+
+<script>
+(async () => {
+  const currSel = document.getElementById('curr');
+  const rateDisplay = document.getElementById('rateDisplay');
+
+  async function loadRates() {
+    try {
+      const base = currSel?.value || 'USD';
+      const res = await fetch(`/api/rates?base=${encodeURIComponent(base)}`);
+      const data = await res.json();
+      if (data && data.rates) {
+        const r = data.rates;
+        const toAED = (r.AED ?? 0).toFixed(2);
+        const toUZS = (r.UZS ?? 0).toFixed(0);
+        const toUSD = (r.USD ?? 0).toFixed(2);
+        rateDisplay.textContent = `1 ${data.base} = ${toAED} AED | ${toUZS} UZS | ${toUSD} USD`;
+      } else {
+        rateDisplay.textContent = "{{ t('rates_unavailable') }}";
+      }
+    } catch {
+      rateDisplay.textContent = "{{ t('rates_unavailable') }}";
+    }
+  }
+
+  await loadRates();
+  currSel?.addEventListener('change', loadRates);
+
+  document.getElementById('auto-detect')?.addEventListener('click', async () => {
+    try {
+      const r = await fetch('/api/geo');
+      const geo = await r.json();
+      const country = geo.country || '';
+      const langCode = (geo.languages || 'en').split(',')[0].split('-')[0];
+      const currMap = { 'AE': 'AED', 'UZ': 'UZS', 'US': 'USD' };
+      document.querySelector('select[name="lang"]').value = (langCode === 'uz' ? 'uz' : 'en');
+      document.querySelector('select[name="curr"]').value = currMap[country] || 'USD';
+      await loadRates();
+    } catch {}
+  });
+})();
+</script>
+
+<!-- Inventory Table -->
+<h2>{{ t("inventory") }}</h2>
 <div class="table-wrap">
 <table>
   <thead>
     <tr>
       <th>#</th>
-      <th><a href="{{ url_for('index', sort_by='name', direction='desc' if sort_by=='name' and direction=='asc' else 'asc') }}">Item</a></th>
-      <th><a href="{{ url_for('index', sort_by='quantity', direction='desc' if sort_by=='quantity' and direction=='asc' else 'asc') }}">Quantity</a></th>
-      <th>Buy ({{ CURRENCY }})</th>
-      <th>Sell ({{ CURRENCY }})</th>
-      <th><a href="{{ url_for('index', sort_by='profit', direction='desc' if sort_by=='profit' and direction=='asc' else 'asc') }}">Profit ({{ CURRENCY }})</a></th>
-      <th>Action</th>
+      <th>{{ t("item") }}</th>
+      <th>{{ t("quantity") }}</th>
+      <th>{{ t("buy") }} ({{ USER_CURR }})</th>
+      <th>{{ t("sell") }} ({{ USER_CURR }})</th>
+      <th>{{ t("profit") }} ({{ USER_CURR }})</th>
+      <th>{{ t("action") }}</th>
     </tr>
   </thead>
   <tbody>
     {% for item in inventory %}
-    <tr>
-      <td>{{ loop.index }}</td>
-      <td>{{ item[1] }}</td>
-      <td>{{ item[4] }}</td>
-      <td>{{ item[2] | money }}</td>
-      <td>{{ item[3] | money }}</td>
-      <td>{{ item[5] | money }}</td>
-      <td class="actions">
-        <a href="{{ url_for('edit_item', item_id=item[0]) }}">✏️</a>
-        <a href="{{ url_for('delete_item', item_id=item[0]) }}">❌</a>
-      </td>
-    </tr>
+      {% set row_profit = (item[3] - item[2]) * item[4] %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ item[1] }}</td>
+        <td>{{ item[4] }}</td>
+        <td>{{ fmt_money_auto(item[2], from_curr='UZS') }}</td>
+        <td>{{ fmt_money_auto(item[3], from_curr='UZS') }}</td>
+        <td>{{ fmt_money_auto(row_profit, from_curr='UZS') }}</td>
+        <td class="actions">
+          <a href="{{ url_for('edit_item', item_id=item[0]) }}">✏️</a>
+          <a href="{{ url_for('delete_item', item_id=item[0]) }}">❌</a>
+        </td>
+      </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
 
-<h2>Insights</h2>
+<!-- Insights -->
+<h2>{{ t("insights") }}</h2>
 <div class="grid-2">
   <div class="chart-card"><canvas id="topProfitChart"></canvas></div>
   <div class="chart-card"><canvas id="lowStockChart"></canvas></div>
@@ -107,9 +198,11 @@
 </div>
 
 <script>
-  const currency = "{{ CURRENCY }}";
+  const currency = "{{ USER_CURR }}";
+  const locale = "{{ 'en-US' if USER_LANG == 'en' else 'uz-UZ' }}";
+  const numberFmt = new Intl.NumberFormat(locale, { style: 'currency', currency });
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const moneyFmt = (v) => `${currency} ` + Math.round(Number(v || 0)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const moneyFmt = (v) => numberFmt.format(Number(v || 0));
 
   function makeGradient(ctx, c1, c2){
     const g = ctx.createLinearGradient(0,0,0,300);
@@ -138,6 +231,7 @@
     const primary = css('--primary');
     const cyan = css('--cyan');
 
+    {% if top_profit_labels is defined and top_profit_values is defined %}
     (function(){
       const el = document.getElementById('topProfitChart'); if(!el) return;
       const ctx = el.getContext('2d');
@@ -146,7 +240,9 @@
         backgroundColor: makeGradient(ctx, primary, 'rgba(96,165,250,.25)'), borderRadius: 10
       }]}, options: baseOptions('Top 5 Profitable Items') });
     })();
+    {% endif %}
 
+    {% if low_stock_labels is defined and low_stock_values is defined %}
     (function(){
       const el = document.getElementById('lowStockChart'); if(!el) return;
       const ctx = el.getContext('2d');
@@ -155,6 +251,7 @@
         backgroundColor: makeGradient(ctx, cyan, 'rgba(34,211,238,.25)'), borderRadius: 10
       }]}, options: baseOptions('Lowest Stock (5)') });
     })();
+    {% endif %}
 
     (function(){
       const el = document.getElementById('stockTrackerChart'); if(!el) return;
@@ -181,11 +278,13 @@
   document.addEventListener('vanta-theme-change', buildCharts);
 </script>
 
-<a href="/admin/backup" class="btn">Backup Now</a>
+<a href="{{ url_for('admin_backup') }}" class="btn">{{ t("backup_now") }}</a>
 
-<p class="mt"><a href="{{ url_for('export_excel') }}" class="btn btn-green">⬇️ Download Excel</a></p>
+<p class="mt">
+  <a href="{{ url_for('export_excel') }}" class="btn btn-green">⬇️ {{ t("download_excel") }}</a>
+</p>
 
-<!-- Live input money formatter: turns 1000000 -> 1,000,000 while typing and strips commas on submit -->
+<!-- Live input money formatter -->
 <script>
 (function () {
   const inputs = document.querySelectorAll("[data-money]");

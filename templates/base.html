@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="{{ USER_LANG }}" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}Jasurbek Inventory{% endblock %}</title>
+  <title>{% block title %}{{ t("app_name") }}{% endblock %}</title>
   <script>
     (function(){
       try {
@@ -23,12 +23,12 @@
   <header class="topbar card container">
     <div class="brand">
       <span class="cube">📦</span>
-      <strong>Jasurbek Inventory</strong>
+      <strong>{{ t("app_name") }}</strong>
       <span class="muted">v{{ APP_VERSION }}</span>
     </div>
     <div class="actions-row">
-      <button id="themeToggle" class="btn btn-outline" title="Toggle theme">Toggle theme</button>
-      <a href="{{ url_for('logout') }}" class="btn btn-red">Logout</a>
+      <button id="themeToggle" class="btn btn-outline" title="{{ t('toggle_theme') }}">{{ t('toggle_theme') }}</button>
+      <a href="{{ url_for('logout') }}" class="btn btn-red">{{ t('logout') }}</a>
     </div>
   </header>
 
@@ -46,7 +46,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="footer container">Made with ⚡ by Vanta — Version {{ APP_VERSION }}</footer>
+  <footer class="footer container">{{ t('made_with') }} — {{ t('version') }} {{ APP_VERSION }}</footer>
 
   <script>
     const toggle = document.getElementById('themeToggle');

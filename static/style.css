@@ -139,3 +139,31 @@ tbody td { text-align: center; }
 
 /* 7) Optional: narrower page layout (use <main class="container narrow"> if you want) */
 .container.narrow { max-width: 820px; }
+
+
+/* Make panel blend with login form style */
+.prefs-card {
+    background: #fff; /* match form background */
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05); /* subtle shadow like other form elements */
+}
+
+.prefs-form select, 
+.prefs-form button {
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    font-size: 0.9rem;
+}
+
+/* Match Save/Auto-detect buttons with login form button style */
+.prefs-actions button {
+    background: #2563eb; /* same blue as main login button */
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.prefs-actions button:hover {
+    background: #1d4ed8;
+}

@@ -20,3 +20,10 @@ Werkzeug==3.1.3
 SQLAlchemy>=2.0
 psycopg2-binary>=2.9
 alembic>=1.13
+Babel>=2.15
+requests>=2.32
+Flask
+Babel
+requests
+openpyxl
+psycopg2-binary
