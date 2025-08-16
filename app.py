@@ -49,12 +49,13 @@ def fmt_money(value, curr=None, lang=None):
         except Exception:
             return f"{value} {curr}"
 
-# ---- Robust FX (USD base) -----------------------------------------------
+# ---- Robust FX (USD base) ---------------------------------------------------
+# We always fetch 1 USD = X {USD,AED,UZS} and derive any other base from that.
 _SUPPORTED = {"USD", "AED", "UZS"}
-_FX_CACHE = {"rates": None, "ts": 0}  # always USD-base in this cache
+_FX_CACHE = {"rates": None, "ts": 0}  # USD-based table only
 
 def _fetch_usd_rates():
-    """Fetch 1 USD = X <currency> for our supported set, with caching + fallbacks."""
+    """Get 1 USD = R[currency] with caching + safe fallbacks."""
     now = time.time()
     if _FX_CACHE["rates"] and (now - _FX_CACHE["ts"]) < 3600:
         return _FX_CACHE["rates"]
@@ -68,10 +69,10 @@ def _fetch_usd_rates():
         r.raise_for_status()
         data = r.json() or {}
         rates = data.get("rates") or {}
-        rates["USD"] = 1.0  # ensure self-rate
+        rates["USD"] = 1.0
         _FX_CACHE.update({"rates": rates, "ts": now})
     except Exception:
-        # Last-resort fallbacks (first boot offline etc.)
+        # last-resort defaults if first-ever call fails
         if not _FX_CACHE["rates"]:
             _FX_CACHE["rates"] = {"USD": 1.0, "AED": 3.6725, "UZS": 12600.0}
             _FX_CACHE["ts"] = now
@@ -79,10 +80,10 @@ def _fetch_usd_rates():
 
 def _derive_rates_from_usd(base):
     """
-    Return (base, rates) where `rates` are BASE->CURRENCY using only USD-base rates R.
-    If base is unknown, fall back to USD.
+    Build BASE->currency rates using only the USD table:
+      BASE->X = (USD->X) / (USD->BASE)
     """
-    R = _fetch_usd_rates()  # 1 USD = R[currency]
+    R = _fetch_usd_rates()
     base = (base or "USD").upper()
     if base not in R:
         base = "USD"
@@ -93,7 +94,6 @@ def _derive_rates_from_usd(base):
             derived[x] = 1.0
         else:
             try:
-                # BASE->x = (USD->x) / (USD->BASE)
                 derived[x] = float(R[x]) / float(R[base])
             except Exception:
                 derived[x] = 0.0
@@ -106,20 +106,16 @@ def convert_amount(value, from_curr=None, to_curr=None):
     except Exception:
         return 0.0
     from_curr = (from_curr or "UZS").upper()
-    to_curr   = (to_curr   or get_curr()).upper()
+    to_curr   = (to_curr or get_curr()).upper()
     if from_curr == to_curr:
         return v
 
-    R = _fetch_usd_rates()  # 1 USD = R[cur]
+    R = _fetch_usd_rates()  # 1 USD = R[currency]
     if from_curr not in R or to_curr not in R:
         return v
 
-    # from -> USD -> to
-    try:
-        amount_usd = v / float(R[from_curr])
-        return amount_usd * float(R[to_curr])
-    except Exception:
-        return v
+    amount_usd = v / float(R[from_curr])
+    return amount_usd * float(R[to_curr])
 
 def fmt_money_auto(value, from_curr=None):
     """Convert from 'from_curr' to the user's currency, then format."""
@@ -134,8 +130,8 @@ def inject_helpers():
     lang = get_lang()
     return {
         "fmt_money": fmt_money,
-        "fmt_money_auto": fmt_money_auto,  # for values stored in a base currency (e.g., UZS)
-        "convert": convert_amount,         # raw converter (useful in JS prefill)
+        "fmt_money_auto": fmt_money_auto,  # for values stored in UZS (or another base)
+        "convert": convert_amount,         # raw converter (e.g., JS prefill)
         "USER_LANG": lang,
         "USER_CURR": get_curr(),
         "t": lambda key: t(key, lang),
@@ -143,11 +139,10 @@ def inject_helpers():
 
 @app.get("/api/rates")
 def api_rates():
-    # Always return a consistent BASE -> {USD, AED, UZS} map derived from USD
-    requested = request.args.get("base", get_curr())
-    base, rates = _derive_rates_from_usd(requested)
+    # Always return a correct BASE->(USD,AED,UZS) map derived from USD table
+    base = (request.args.get("base") or get_curr()).upper()
+    base, rates = _derive_rates_from_usd(base)
     return jsonify({"base": base, "rates": rates})
-
 
 @app.get("/api/geo")
 def api_geo():
@@ -166,6 +161,7 @@ def set_prefs():
     session["CURR"] = curr if curr in {"USD", "AED", "UZS"} else DEFAULT_CURR
     flash(t("preferences_saved", session["LANG"]), "success")
     return redirect(url_for("login"))
+
 
 # -----------------------------------------------------------------------------
 # Money helpers (legacy filter kept for inputs/old spots)
