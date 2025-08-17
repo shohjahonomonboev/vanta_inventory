@@ -46,7 +46,7 @@ I18N = {
 
     "uz": {
         # UI & Preferences
-        "app_name": "Jasurbek Skladi",
+        "app_name": "Jasurbek do'koni",
         "toggle_theme": "Oq va Qora tema",
         "logout": "Chiqish",
         "made_with": "Vanta tomonidan ⚡ bilan yaratilgan",
@@ -61,7 +61,7 @@ I18N = {
         "live_rates_loading": "Jonli kurslar yuklanmoqda…",
 
         # Inventory
-        "inventory": "Skladi",
+        "inventory": "do'koni",
         "item": "Mahsulot",
         "quantity": "Miqdor",
         "buy": "Sotib olish",

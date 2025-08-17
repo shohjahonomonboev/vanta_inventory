@@ -5,17 +5,17 @@
 <p class="subtitle">Vanta Inventory System</p>
 
 <form method="POST" class="form-col">
-  <input type="text"   name="name" placeholder="Item Name" value="{{ item['name'] }}" required>
+  <input type="text" name="name" placeholder="Item Name" value="{{ item['name'] }}" required>
 
-  <!-- money inputs: text + auto-format to 1,000,000 -->
-  <input type="text"   name="buying_price"  data-money data-decimals="0"
-         placeholder="Buying Price"
-         value="{{ item['buying_price'] | money }}"
+  <!-- Show prices in current UI currency; they’ll be converted back to UZS on save -->
+  <input type="text" name="buying_price" data-money data-decimals="0"
+         placeholder="Buying Price ({{ CURRENCY }})"
+         value="{{ (item['buying_price'] | ccy) | money }}"
          required>
 
-  <input type="text"   name="selling_price" data-money data-decimals="0"
-         placeholder="Selling Price"
-         value="{{ item['selling_price'] | money }}"
+  <input type="text" name="selling_price" data-money data-decimals="0"
+         placeholder="Selling Price ({{ CURRENCY }})"
+         value="{{ (item['selling_price'] | ccy) | money }}"
          required>
 
   <input type="number" name="quantity" placeholder="Quantity" value="{{ item['quantity'] }}" required>
@@ -26,32 +26,20 @@
 <script>
 (function () {
   const inputs = document.querySelectorAll("[data-money]");
-
-  function formatMoney(raw) {
-    const digits = String(raw || "").replace(/[^\d]/g, "");
-    if (!digits) return "";
-    return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  }
-  function unformatMoney(s) { return String(s || "").replace(/,/g, ""); }
-
-  inputs.forEach(inp => {
-    if (inp.value) inp.value = formatMoney(inp.value);
-
-    inp.addEventListener("input", () => {
-      const start = inp.selectionStart || 0;
-      const before = inp.value;
+  function formatMoney(raw){ const d=String(raw||"").replace(/[^\d]/g,""); return d?d.replace(/\B(?=(\d{3})+(?!\d))/g,","):""; }
+  function unformatMoney(s){ return String(s||"").replace(/,/g,""); }
+  inputs.forEach(inp=>{
+    if(inp.value) inp.value = formatMoney(inp.value);
+    inp.addEventListener("input", ()=>{
+      const start = inp.selectionStart||0, before = inp.value;
       inp.value = formatMoney(before);
       const diff = inp.value.length - before.length;
       const pos = Math.max(0, start + diff);
-      try { inp.setSelectionRange(pos, pos); } catch(e) {}
+      try{ inp.setSelectionRange(pos,pos); }catch(e){}
     });
-
-    inp.addEventListener("blur", () => { inp.value = formatMoney(inp.value); });
-
-    if (inp.form) {
-      inp.form.addEventListener("submit", () => {
-        inp.value = unformatMoney(inp.value);
-      });
+    inp.addEventListener("blur", ()=>{ inp.value = formatMoney(inp.value); });
+    if(inp.form){
+      inp.form.addEventListener("submit", ()=>{ inp.value = unformatMoney(inp.value); });
     }
   });
 })();

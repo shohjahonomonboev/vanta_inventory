@@ -167,3 +167,81 @@ tbody td { text-align: center; }
 .prefs-actions button:hover {
     background: #1d4ed8;
 }
+
+<style>
+  .add-item-title {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .info-badge {
+    display: inline-grid;
+    place-items: center;
+    width: 16px; height: 16px;
+    border-radius: 999px;
+    font: 700 12px/1 system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+    color: #fff;
+    background: #9aa0a6;   /* neutral grey */
+    cursor: help;
+    user-select: none;
+    outline: 0;
+  }
+  .info-badge:hover, .info-badge:focus-visible {
+    background: #6b7280;   /* darker on hover/focus */
+  }
+
+  /* Tooltip */
+  .tooltip-box {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    transform: translateY(8px);
+    min-width: max(260px, 40ch);
+    max-width: 480px;
+
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #111827;   /* near-black */
+    color: #f9fafb;        /* near-white */
+    box-shadow: 0 8px 24px rgba(0,0,0,.18);
+
+    font-size: 12.5px;
+    line-height: 1.35;
+    letter-spacing: .1px;
+
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .15s ease, transform .15s ease;
+    z-index: 20;
+  }
+  /* Tooltip arrow */
+  .tooltip-box::after {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    left: 10px;
+    border: 6px solid transparent;
+    border-bottom-color: #111827;
+  }
+
+  /* Show on hover/focus of the badge (and keyboard focus) */
+  .add-item-title:hover .tooltip-box,
+  .add-item-title:focus-within .tooltip-box {
+    opacity: 1;
+    transform: translateY(4px);
+    pointer-events: auto;
+  }
+
+  /* Respect small screens: make tooltip full width under title */
+  @media (max-width: 560px) {
+    .tooltip-box {
+      left: 0;
+      right: 0;
+      min-width: unset;
+      max-width: unset;
+    }
+    .tooltip-box::after { left: 12px; }
+  }
+</style>

@@ -1,113 +1,186 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <head>
-    <title>Vanta Inventory System</title>
-</head>
+  <meta charset="UTF-8">
+  <title>Vanta Inventory System</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+    html, body {
+      height: 100%;
+      width: 100%;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #f4f4f4;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
 
-        html, body {
-            height: 100%;
-            width: 100%;
-            font-family: 'Segoe UI', sans-serif;
-            background-color: #f4f4f4;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
+    .login-box {
+      background-color: white;
+      padding: 30px 40px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
 
-        .login-box {
-            background-color: white;
-            padding: 30px 40px;
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-            width: 100%;
-            max-width: 400px;
-            text-align: center;
-        }
+    .login-box h2 { margin-bottom: 20px; color: #222; }
 
-        .login-box h2 {
-            margin-bottom: 20px;
-            color: #222;
-        }
+    .input-wrapper { position: relative; margin: 10px 0; }
 
-        input[type="text"],
-        input[type="password"] {
-            width: 100%;
-            padding: 12px;
-            margin: 10px 0;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            font-size: 16px;
-        }
+    .input-wrapper input {
+      width: 100%;
+      padding: 12px 40px 12px 40px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+      transition: all 0.25s ease;
+      background: #fff;
+    }
+    .input-wrapper input:focus {
+      border-color: #007bff;
+      box-shadow: 0 0 8px rgba(0, 123, 255, 0.4);
+      outline: none;
+    }
 
-        .login-box button {
-            width: 100%;
-            padding: 12px;
-            margin-top: 10px;
-            background-color: #007bff;
-            border: none;
-            color: white;
-            font-weight: bold;
-            font-size: 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
+    /* Red glow on error */
+    .login-box.error .input-wrapper input {
+      border-color: #dc2626;
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+    }
 
-        .login-box button:hover {
-            background-color: #0056b3;
-        }
+    .icon-left {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 18px;
+      color: #888;
+    }
 
-        .forgot-password {
-            display: block;
-            text-align: right;
-            margin-top: 8px;
-            font-size: 14px;
-        }
+    .info-icon,
+    .info-icon-title {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      line-height: 16px;
+      border-radius: 50%;
+      background: #ccc;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+      text-align: center;
+      cursor: help;
+    }
+    .info-icon { position: absolute; right: 35px; top: 50%; transform: translateY(-50%); }
+    .info-icon:hover, .info-icon-title:hover { background: #888; }
 
-        .forgot-password a {
-            color: #007bff;
-            text-decoration: none;
-        }
+    /* 👁️ toggle */
+    .toggle-password {
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      cursor: pointer;
+      font-size: 16px;
+      color: #555;
+      transition: color 0.3s ease, transform 0.2s ease;
+    }
+    .toggle-password.active { color: #007bff; transform: scale(1.2); }
 
-        .forgot-password a:hover {
-            text-decoration: underline;
-        }
+    .login-box button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      background-color: #007bff;
+      border: none;
+      color: white;
+      font-weight: bold;
+      font-size: 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    .login-box button:hover { background-color: #0056b3; }
 
-        .error-message {
-            color: crimson;
-            margin-bottom: 10px;
-        }
-    </style>
+    .forgot-password {
+      display: block;
+      text-align: right;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+    .forgot-password a { color: #007bff; text-decoration: none; }
+    .forgot-password a:hover { text-decoration: underline; }
+
+    .error-message {
+      color: #dc2626;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+
+    /* Shake animation */
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-8px); }
+      40%, 80% { transform: translateX(8px); }
+    }
+    .shake { animation: shake 0.4s ease; }
+  </style>
 </head>
 <body>
-    <div class="login-box">
-        <h2>Admin Login</h2>
-        {% if error %}
-            <div class="error-message">{{ error }}</div>
-        {% endif %}
-        <form method="POST">
-            <input type="text" name="username" placeholder="Username" required>
-            <input type="password" name="password" placeholder="Password" required>
-            <div class="forgot-password">
-                <a href="#">Forgot Password?</a>
-            </div>
-            <button type="submit">Login</button>
-        </form>
-    </div>
+  <!-- Add both classes when error -->
+  <div class="login-box {% if error %}shake error{% endif %}">
+    <h2>
+      Admin Login 
+      <span class="info-icon-title" title="Admins only. Unauthorized access prohibited.">i</span>
+    </h2>
+
+    {% if error %}
+      <div class="error-message">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST">
+      <div class="input-wrapper">
+        <span class="icon-left">👤</span>
+        <input type="text" name="username" placeholder="Username" required>
+        <span class="info-icon" title="Enter your administrator username.">i</span>
+      </div>
+
+      <div class="input-wrapper">
+        <span class="icon-left">🔒</span>
+        <input type="password" id="password" name="password" placeholder="Password" required>
+        <span class="info-icon" title="Only authorized administrators are allowed to log in.">i</span>
+        <span class="toggle-password" onclick="togglePassword()">👁️</span>
+      </div>
+
+      <div class="forgot-password">
+        <a href="#">Forgot Password?</a>
+      </div>
+      <button type="submit">Login</button>
+    </form>
+  </div>
+
+  <script>
+    function togglePassword() {
+      const pwdField = document.getElementById("password");
+      const toggle = document.querySelector(".toggle-password");
+      if (pwdField.type === "password") {
+        pwdField.type = "text";
+        toggle.textContent = "🙈";
+        toggle.classList.add("active");
+      } else {
+        pwdField.type = "password";
+        toggle.textContent = "👁️";
+        toggle.classList.remove("active");
+      }
+    }
+  </script>
 </body>
 <footer style="opacity:.6;font-size:.85rem;margin-top:12px;text-align:center;">
   Version: {{ APP_VERSION }}
 </footer>
 </html>
-
-

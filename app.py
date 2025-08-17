@@ -1,11 +1,14 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 import os, io, time, json, zipfile, datetime
-import requests
 from urllib.parse import urlparse
-import psycopg2  # Postgres (used for backup route)
-import openpyxl  # Excel export
 
-# Babel is optional; if missing, use a safe fallback
+import requests
+import openpyxl
+import psycopg2
+from sqlalchemy.exc import IntegrityError  # keep if you actually use it
+
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify, g
+
+# Babel (optional)
 try:
     from babel.numbers import format_currency as _format_currency
 except Exception:
@@ -19,15 +22,11 @@ import database_sqlalchemy as db
 from database_sqlalchemy import ensure_schema
 from i18n import t
 
-# -----------------------------------------------------------------------------
-# App setup
-# -----------------------------------------------------------------------------
-app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "dev-only-change-me")
 
-# -----------------------------------------------------------------------------
-# Language / Currency (Phase 2 core)
-# -----------------------------------------------------------------------------
+# =========================
+# Currency / i18n
+# =========================
+BASE_CCY = "UZS"   # set to "UZS" if DB rows are UZS
 DEFAULT_LANG = "en"
 DEFAULT_CURR = "USD"
 
@@ -49,68 +48,104 @@ def fmt_money(value, curr=None, lang=None):
         except Exception:
             return f"{value} {curr}"
 
-# ---- Robust FX (USD base) ---------------------------------------------------
-# We always fetch 1 USD = X {USD,AED,UZS} and derive any other base from that.
+# Robust USD-based FX
 _SUPPORTED = {"USD", "AED", "UZS"}
-_FX_CACHE = {"rates": None, "ts": 0}  # USD-based table only
+_FX_CACHE = {"rates": None, "ts": 0}  # 1 USD = R[currency]
 
 def _fetch_usd_rates():
-    """Get 1 USD = R[currency] with caching + safe fallbacks."""
+    """
+    Return a dict like {'USD':1.0,'AED':3.67,'UZS':12600} for 1 USD = X.
+    Tries multiple providers, caches ~1h, and never returns missing keys.
+    """
     now = time.time()
     if _FX_CACHE["rates"] and (now - _FX_CACHE["ts"]) < 3600:
         return _FX_CACHE["rates"]
 
-    try:
-        r = requests.get(
+    providers = []
+    providers.append((
+        "exchangerate.host",
+        lambda: requests.get(
             "https://api.exchangerate.host/latest",
-            params={"base": "USD", "symbols": ",".join(sorted(_SUPPORTED))},
+            params={"base": "USD", "symbols": "USD,AED,UZS"},
+            headers={"User-Agent": "VantaInventory/1.0"},
             timeout=8,
-        )
-        r.raise_for_status()
-        data = r.json() or {}
-        rates = data.get("rates") or {}
-        rates["USD"] = 1.0
-        _FX_CACHE.update({"rates": rates, "ts": now})
-    except Exception:
-        # last-resort defaults if first-ever call fails
-        if not _FX_CACHE["rates"]:
-            _FX_CACHE["rates"] = {"USD": 1.0, "AED": 3.6725, "UZS": 12600.0}
-            _FX_CACHE["ts"] = now
-    return _FX_CACHE["rates"]
+        ).json().get("rates", {})
+    ))
+    providers.append((
+        "open.er-api.com",
+        lambda: requests.get(
+            "https://open.er-api.com/v6/latest/USD",
+            headers={"User-Agent": "VantaInventory/1.0"},
+            timeout=8,
+        ).json().get("rates", {})
+    ))
+    providers.append((
+        "frankfurter.app",
+        lambda: requests.get(
+            "https://api.frankfurter.dev/v1/latest",
+            params={"from": "USD", "to": "AED,USD,UZS"},
+            headers={"User-Agent": "VantaInventory/1.0"},
+            timeout=8,
+        ).json().get("rates", {})
+    ))
+
+    rates = None
+    for name, fn in providers:
+        try:
+            r = fn() or {}
+            out = {
+                "USD": float(r.get("USD", 1.0)),
+                "AED": float(r.get("AED")) if r.get("AED") is not None else None,
+                "UZS": float(r.get("UZS")) if r.get("UZS") is not None else None,
+            }
+            if out["AED"] is None and "AED" in r and r["AED"]:
+                out["AED"] = float(r["AED"])
+            if out["UZS"] is None and "UZS" in r and r["UZS"]:
+                out["UZS"] = float(r["UZS"])
+
+            if out["AED"] is not None:
+                if out["UZS"] is None:
+                    prev = _FX_CACHE.get("rates") or {}
+                    out["UZS"] = float(prev.get("UZS", 12600.0))
+                rates = out
+                break
+        except Exception:
+            continue
+
+    if not rates:
+        rates = {"USD": 1.0, "AED": 3.6725, "UZS": 12600.0}
+
+    _FX_CACHE.update({"rates": rates, "ts": now})
+    return rates
 
 def _derive_rates_from_usd(base):
-    """
-    Build BASE->currency rates using only the USD table:
-      BASE->X = (USD->X) / (USD->BASE)
-    """
     R = _fetch_usd_rates()
     base = (base or "USD").upper()
     if base not in R:
         base = "USD"
-
-    derived = {}
+    out = {}
     for x in _SUPPORTED:
         if x == base:
-            derived[x] = 1.0
+            out[x] = 1.0
         else:
             try:
-                derived[x] = float(R[x]) / float(R[base])
+                out[x] = float(R[x]) / float(R[base])
             except Exception:
-                derived[x] = 0.0
-    return base, derived
+                out[x] = 0.0
+    return base, out
 
 def convert_amount(value, from_curr=None, to_curr=None):
-    """Convert using USD-base table: from -> USD -> to."""
+    """amount[from_curr] -> USD -> to_curr"""
     try:
         v = float(value or 0)
     except Exception:
         return 0.0
-    from_curr = (from_curr or "UZS").upper()
+    from_curr = (from_curr or BASE_CCY).upper()
     to_curr   = (to_curr or get_curr()).upper()
     if from_curr == to_curr:
         return v
 
-    R = _fetch_usd_rates()  # 1 USD = R[currency]
+    R = _fetch_usd_rates()
     if from_curr not in R or to_curr not in R:
         return v
 
@@ -118,28 +153,51 @@ def convert_amount(value, from_curr=None, to_curr=None):
     return amount_usd * float(R[to_curr])
 
 def fmt_money_auto(value, from_curr=None):
-    """Convert from 'from_curr' to the user's currency, then format."""
     return fmt_money(convert_amount(value, from_curr=from_curr, to_curr=get_curr()))
 
-@app.template_filter('convert_js')
-def convert_js(value, from_curr):
-    return round(convert_amount(value, from_curr=from_curr, to_curr=get_curr()), 2)
+# =========================
+# App setup
+# =========================
+app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "dev-only-change-me")
+
+# ✅ Ensure DB schema once at startup
+with app.app_context():
+    try:
+        ensure_schema()
+        print("✅ Database schema ensured at startup.")
+    except Exception as e:
+        print(f"⚠️ Failed to ensure schema: {e}")
+
+@app.before_request
+def _inject_currency():
+    g.CURRENCY = get_curr()
+
+@app.template_filter("ccy")
+def ccy(amount):
+    """Convert from DB currency -> current UI currency."""
+    return convert_amount(amount, from_curr=BASE_CCY, to_curr=get_curr())
+
+@app.template_filter("fmtmoney")
+def fmtmoney(amount):
+    return fmt_money(amount, curr=get_curr(), lang=get_lang())
 
 @app.context_processor
 def inject_helpers():
     lang = get_lang()
     return {
         "fmt_money": fmt_money,
-        "fmt_money_auto": fmt_money_auto,  # for values stored in UZS (or another base)
-        "convert": convert_amount,         # raw converter (e.g., JS prefill)
+        "fmt_money_auto": fmt_money_auto,
+        "convert": convert_amount,
         "USER_LANG": lang,
         "USER_CURR": get_curr(),
+        "CURRENCY": get_curr(),
         "t": lambda key: t(key, lang),
     }
 
+# APIs used by the prefs panel
 @app.get("/api/rates")
 def api_rates():
-    # Always return a correct BASE->(USD,AED,UZS) map derived from USD table
     base = (request.args.get("base") or get_curr()).upper()
     base, rates = _derive_rates_from_usd(base)
     return jsonify({"base": base, "rates": rates})
@@ -153,19 +211,30 @@ def api_geo():
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
+# Prefs (language + currency)
 @app.post("/prefs")
 def set_prefs():
     lang = (request.form.get("lang") or DEFAULT_LANG).strip()
-    curr = (request.form.get("curr") or DEFAULT_CURR).strip()
+    curr = (request.form.get("curr") or DEFAULT_CURR).strip().upper()
     session["LANG"] = "uz" if lang == "uz" else "en"
-    session["CURR"] = curr if curr in {"USD", "AED", "UZS"} else DEFAULT_CURR
+    session["CURR"] = curr if curr in _SUPPORTED else DEFAULT_CURR
     flash(t("preferences_saved", session["LANG"]), "success")
     return redirect(url_for("login"))
 
+# Legacy currency setter (kept; writes CURR)
+@app.post("/settings/currency")
+def set_currency():
+    cur = (request.form.get("currency") or DEFAULT_CURR).upper()
+    if cur not in _SUPPORTED:
+        flash("Unsupported currency.", "error")
+        return redirect(url_for("index"))
+    session["CURR"] = cur
+    flash(f"Currency set to {cur}.", "success")
+    return redirect(url_for("index"))
 
-# -----------------------------------------------------------------------------
-# Money helpers (legacy filter kept for inputs/old spots)
-# -----------------------------------------------------------------------------
+# =========================
+# Money helpers (legacy)
+# =========================
 def money(v, decimals=0):
     try:
         v = float(str(v).replace(",", ""))
@@ -181,19 +250,10 @@ def parse_money(s):
 
 app.jinja_env.filters["money"] = money
 
-# -----------------------------------------------------------------------------
-# Startup: ensure DB schema
-# -----------------------------------------------------------------------------
-with app.app_context():
-    try:
-        ensure_schema()
-        print("✅ Database schema ensured at startup.")
-    except Exception as e:
-        print(f"⚠️ Failed to ensure schema: {e}")
 
-# -----------------------------------------------------------------------------
+# =========================
 # Version / Health
-# -----------------------------------------------------------------------------
+# =========================
 def get_version():
     try:
         return open("VERSION", encoding="utf-8").read().strip()
@@ -208,9 +268,9 @@ def inject_version():
 def __health():
     return jsonify(status="ok", version=get_version()), 200
 
-# -----------------------------------------------------------------------------
+# =========================
 # Env config
-# -----------------------------------------------------------------------------
+# =========================
 ENV = os.getenv("ENV", "dev").lower()
 if ENV == "dev":
     app.config.update(
@@ -228,9 +288,9 @@ else:
         SESSION_COOKIE_SAMESITE="Lax",
     )
 
-# -----------------------------------------------------------------------------
+# =========================
 # Auth
-# -----------------------------------------------------------------------------
+# =========================
 ADMIN_USERS_ENV = os.environ.get("ADMIN_USERS")
 if ADMIN_USERS_ENV:
     ADMIN_USERS = dict(pair.split(":", 1) for pair in ADMIN_USERS_ENV.split(","))
@@ -240,9 +300,9 @@ else:
 def is_logged_in():
     return bool(session.get("logged_in"))
 
-# -----------------------------------------------------------------------------
+# =========================
 # Data access
-# -----------------------------------------------------------------------------
+# =========================
 def get_inventory():
     rows = db.db_all("""
         SELECT id, name, buying_price, selling_price, quantity, profit,
@@ -252,45 +312,37 @@ def get_inventory():
     """)
     return [tuple(r) for r in rows]
 
-# -----------------------------------------------------------------------------
+# =========================
 # Routes
-# -----------------------------------------------------------------------------
-# 🏠 Home
+# =========================
 @app.route("/", methods=["GET", "POST"])
 def index():
     if not is_logged_in():
         return redirect(url_for("login"))
 
-    # ---- BLOCK 3: search/filter/sort (from GET or POST) ----
+    # Filters
     search_query    = (request.values.get("search", "") or "").strip().lower()
     selected_filter = request.values.get("filter", "")
     sort_by         = request.args.get("sort_by", "id")
     direction       = request.args.get("direction", "asc")
-    # --------------------------------------------------------
 
-    inventory = get_inventory()  # tuples: (id, name, buying_price, selling_price, quantity, profit, currency)
-
-    # DB type
+    inventory = get_inventory()  # tuples: (id, name, buy, sell, qty, profit, currency)
     using_sqlite = db.DATABASE_URL.startswith("sqlite")
 
-    # Today's revenue/profit
+    # Today revenue/profit
     if using_sqlite:
-        row = db.db_one(
-            """
+        row = db.db_one("""
             SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
             FROM sales WHERE DATE(sold_at)=DATE('now','localtime')
-            """
-        )
+        """)
     else:
-        row = db.db_one(
-            """
+        row = db.db_one("""
             SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
-            FROM sales WHERE DATE(sold_at)=CURRENT_DATE
-            """
-        )
+            FROM sales s WHERE DATE(s.sold_at)=CURRENT_DATE
+        """)
     today_revenue, today_profit = (row[0] if row else 0), (row[1] if row else 0)
 
-    # Filter (string search + quick filters)
+    # Filter
     if search_query:
         inventory = [it for it in inventory if search_query in (it[1] or "").lower()]
     if selected_filter == "low_stock":
@@ -307,14 +359,13 @@ def index():
     total_quantity = sum(it[4] for it in inventory)
     total_profit   = sum(it[5] for it in inventory)
 
-    # Top 5 / Low 5 (by profit/quantity)
+    # Top 5 / Low 5
     top_profit_items = sorted(inventory, key=lambda x: x[5], reverse=True)[:5]
     low_stock_items  = sorted(inventory, key=lambda x: x[4])[:5]
 
     # Last 7 days revenue
     if using_sqlite:
-        rows = db.db_all(
-            """
+        rows = db.db_all("""
             WITH days AS (
               SELECT DATE('now','localtime','-6 day') AS d
               UNION ALL SELECT DATE('now','localtime','-5 day')
@@ -327,11 +378,9 @@ def index():
             SELECT d AS day,
                    COALESCE((SELECT SUM(qty*sell_price) FROM sales s WHERE DATE(s.sold_at)=d),0) AS revenue
             FROM days
-            """
-        )
+        """)
     else:
-        rows = db.db_all(
-            """
+        rows = db.db_all("""
             WITH days AS (
               SELECT generate_series(current_date - interval '6 day', current_date, interval '1 day')::date AS d
             )
@@ -339,14 +388,19 @@ def index():
                    COALESCE((SELECT SUM(qty*sell_price) FROM sales s WHERE DATE(s.sold_at)=d),0) AS revenue
             FROM days
             ORDER BY d
-            """
-        )
+        """)
+
     sales_labels = [str(r[0]) for r in rows]
     sales_values = [float(r[1] or 0) for r in rows]
 
     # Stock tracker
     stock_labels = [it[1] for it in inventory]
     stock_values = [it[4] for it in inventory]
+
+    # Footer live rates (server-rendered)
+    _base, _rates = _derive_rates_from_usd("USD")
+    usd_to_aed = _rates.get("AED", 0)
+    usd_to_uzs = _rates.get("UZS", 0)
 
     return render_template(
         "index.html",
@@ -367,30 +421,160 @@ def index():
         sales_values=sales_values,
         stock_labels=stock_labels,
         stock_values=stock_values,
+        usd_to_aed=usd_to_aed,
+        usd_to_uzs=usd_to_uzs,
     )
 
-# ➕ Add Item
+# ➕ Add Item (UPSERT by name) — uses db.db_one/db.db_exec only
 @app.post("/add")
 def add_item():
     if not is_logged_in():
         return redirect(url_for("login"))
 
-    name = request.form["name"].strip().lower()
-    quantity = int(request.form["quantity"])
-    buying_price = parse_money(request.form["buying_price"])
-    selling_price = parse_money(request.form["selling_price"])
-    profit = (selling_price - buying_price) * quantity
+    # ---- Name ----
+    name_raw = (request.form.get("name") or "").strip()
+    if not name_raw:
+        flash("Name is required.", "error")
+        return redirect(url_for("index"))
+    name = name_raw.capitalize()
 
-    db.db_exec(
-        """
-        INSERT INTO inventory (name, buying_price, selling_price, quantity, profit)
-        VALUES (:n, :bp, :sp, :q, :pf)
-        """,
-        {"n": name.capitalize(), "bp": buying_price, "sp": selling_price, "q": quantity, "pf": profit},
-    )
+    # ---- Quantity ----
+    quantity_raw = (request.form.get("quantity") or "").strip()
+    try:
+        quantity = int(quantity_raw)
+    except Exception:
+        flash("Quantity must be a number.", "error")
+        return redirect(url_for("index"))
+    if quantity <= 0:
+        flash("Quantity must be greater than 0.", "error")
+        return redirect(url_for("index"))
 
-    flash(f"Item '{name.capitalize()}' added successfully!", "success")
+    # ---- Prices from UI → numbers ----
+    try:
+        buying_price_ui  = parse_money(request.form.get("buying_price"))
+        selling_price_ui = parse_money(request.form.get("selling_price"))
+    except Exception as e:
+        flash(f"Could not read prices: {e}", "error")
+        return redirect(url_for("index"))
+
+    if buying_price_ui is None or selling_price_ui is None:
+        flash("Buying and selling prices are required.", "error")
+        return redirect(url_for("index"))
+
+    try:
+        bp_ui = float(buying_price_ui)
+        sp_ui = float(selling_price_ui)
+    except Exception:
+        flash("Prices must be numeric.", "error")
+        return redirect(url_for("index"))
+
+    if bp_ui < 0 or sp_ui < 0:
+        flash("Prices must be non-negative.", "error")
+        return redirect(url_for("index"))
+
+    # ---- Currency conversion (UI → BASE_CCY) ----
+    try:
+        buying_price  = convert_amount(bp_ui,  from_curr=get_curr(), to_curr=BASE_CCY)
+        selling_price = convert_amount(sp_ui, from_curr=get_curr(), to_curr=BASE_CCY)
+    except Exception as e:
+        flash(f"Currency conversion failed: {e}", "error")
+        return redirect(url_for("index"))
+
+    # ---- UPSERT via db layer ----
+    try:
+        existing = db.db_one("SELECT id, quantity FROM inventory WHERE name=:n", {"n": name})
+        if existing:
+            item_id, existing_qty = existing[0], (existing[1] or 0)
+            new_qty = existing_qty + quantity
+            db.db_exec(
+                """
+                UPDATE inventory
+                   SET buying_price=:bp,
+                       selling_price=:sp,
+                       quantity=:q,
+                       updated_at=CURRENT_TIMESTAMP
+                 WHERE id=:id
+                """,
+                {"bp": buying_price, "sp": selling_price, "q": new_qty, "id": item_id},
+            )
+            flash(f"Updated '{name}': quantity +{quantity} → {new_qty}.", "success")
+        else:
+            db.db_exec(
+                """
+                INSERT INTO inventory (name, buying_price, selling_price, quantity, created_at, updated_at)
+                VALUES (:n, :bp, :sp, :q, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity},
+            )
+            flash(f"Added '{name}' (qty {quantity}).", "success")
+    except Exception as e:
+        flash(f"Failed to save item: {e}", "error")
+
     return redirect(url_for("index"))
+
+
+    # Optional (keep or remove): basic sanity check
+    # if sp_ui < bp_ui:
+    #     flash("Selling price is below buying price.", "warning")
+
+    # ---- Currency conversion: UI currency -> BASE_CCY ----
+    from_curr = get_curr()        # e.g., "AED", "USD", etc. (your current UI currency)
+    to_curr   = BASE_CCY          # your canonical storage currency
+
+    try:
+        buying_price  = convert_amount(bp_ui, from_curr=from_curr, to_curr=to_curr)
+        selling_price = convert_amount(sp_ui, from_curr=from_curr, to_curr=to_curr)
+    except Exception as e:
+        flash(f"Currency conversion failed: {e}", "error")
+        return redirect(url_for("index"))
+
+    # ---- Persist (UPSERT by name) ----
+    try:
+        conn = get_db()
+        cur  = conn.cursor()
+
+        # Does item already exist?
+        cur.execute("SELECT id, quantity FROM inventory WHERE name = ?", (name,))
+        row = cur.fetchone()
+
+        if row:
+            item_id, existing_qty = row
+            new_qty = (existing_qty or 0) + quantity
+            cur.execute(
+                """
+                UPDATE inventory
+                   SET buying_price = ?,
+                       selling_price = ?,
+                       quantity = ?,
+                       updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?
+                """,
+                (buying_price, selling_price, new_qty, item_id),
+            )
+            action_msg = f"Updated '{name}': quantity +{quantity} → {new_qty}."
+        else:
+            cur.execute(
+                """
+                INSERT INTO inventory (name, buying_price, selling_price, quantity, created_at, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (name, buying_price, selling_price, quantity),
+            )
+            action_msg = f"Added '{name}' (qty {quantity})."
+
+        conn.commit()
+        flash(action_msg, "success")
+
+    except Exception as e:
+        # Safe rollback
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        flash(f"Failed to save item: {e}", "error")
+
+    return redirect(url_for("index"))
+
 
 # 💵 Sell Item
 @app.post("/sell")
@@ -400,7 +584,7 @@ def sell_item():
 
     item_id = int(request.form["item_id"])
     qty = int(request.form["qty"])
-    sell_price = parse_money(request.form["sell_price"])
+    sell_price = convert_amount(sell_price_ui, from_curr=get_curr(), to_curr=BASE_CCY)  # now in UZS
 
     row = db.db_one("SELECT quantity, buying_price FROM inventory WHERE id=:id", {"id": item_id})
     if not row:
@@ -413,12 +597,8 @@ def sell_item():
         return redirect(url_for("index"))
 
     profit = (sell_price - buy_price) * qty
-
     db.db_exec(
-        """
-        INSERT INTO sales (item_id, qty, sell_price, profit)
-        VALUES (:id, :q, :sp, :pf)
-        """,
+        "INSERT INTO sales (item_id, qty, sell_price, profit) VALUES (:id, :q, :sp, :pf)",
         {"id": item_id, "q": qty, "sp": sell_price, "pf": profit},
     )
     db.db_exec("UPDATE inventory SET quantity = quantity - :q WHERE id = :id", {"q": qty, "id": item_id})
@@ -461,55 +641,193 @@ def edit_item(item_id):
         return redirect(url_for("login"))
 
     if request.method == "POST":
-        name = request.form["name"].strip().lower()
-        quantity = int(request.form["quantity"])
-        buying_price = parse_money(request.form["buying_price"])
-        selling_price = parse_money(request.form["selling_price"])
-        profit = (selling_price - buying_price) * quantity
+        # ---- Name ----
+        name_raw = (request.form.get("name") or "").strip()
+        if not name_raw:
+            flash("Name is required.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+        name = name_raw.capitalize()
 
-        db.db_exec(
-            """
-            UPDATE inventory
-            SET name=:n, buying_price=:bp, selling_price=:sp, quantity=:q, profit=:pf
-            WHERE id=:id
-            """,
-            {"n": name.capitalize(), "bp": buying_price, "sp": selling_price, "q": quantity, "pf": profit, "id": item_id},
-        )
-        flash(f"Item '{name.capitalize()}' updated successfully!", "info")
+        # ---- Quantity ----
+        quantity_raw = (request.form.get("quantity") or "").strip()
+        try:
+            quantity = int(quantity_raw)
+        except Exception:
+            flash("Quantity must be a number.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+        if quantity < 0:
+            flash("Quantity must be ≥ 0.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+
+        # ---- Prices (UI currency → numbers) ----
+        try:
+            buying_price_ui  = parse_money(request.form.get("buying_price"))
+            selling_price_ui = parse_money(request.form.get("selling_price"))
+        except Exception as e:
+            flash(f"Could not read prices: {e}", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+
+        if buying_price_ui is None or selling_price_ui is None:
+            flash("Buying and selling prices are required.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+
+        try:
+            bp_ui = float(buying_price_ui)
+            sp_ui = float(selling_price_ui)
+        except Exception:
+            flash("Prices must be numeric.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+
+        if bp_ui < 0 or sp_ui < 0:
+            flash("Prices must be non-negative.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+
+        # Optional sanity check (warning only)
+        # if sp_ui < bp_ui:
+        #     flash("Selling price is below buying price.", "warning")
+
+        # ---- Currency conversion (UI → BASE_CCY) ----
+        try:
+            from_curr = get_curr()
+            to_curr   = BASE_CCY
+            buying_price  = convert_amount(bp_ui, from_curr=from_curr, to_curr=to_curr)
+            selling_price = convert_amount(sp_ui, from_curr=from_curr, to_curr=to_curr)
+        except Exception as e:
+            flash(f"Currency conversion failed: {e}", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+
+        # ---- Persist ----
+        try:
+            db.db_exec(
+                """
+                UPDATE inventory
+                   SET name=:n,
+                       buying_price=:bp,
+                       selling_price=:sp,
+                       quantity=:q
+                 WHERE id=:id
+                """,
+                {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity, "id": item_id},
+            )
+            flash(f"Item '{name}' updated.", "success")
+            return redirect(url_for("index"))
+        except Exception as e:
+            flash(f"Failed to update item: {e}", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+
+    # ---- GET ----
+    item = db.db_one("SELECT * FROM inventory WHERE id=:id", {"id": item_id})
+    if not item:
+        flash("Item not found!", "error")
         return redirect(url_for("index"))
 
-    row = db.db_one("SELECT * FROM inventory WHERE id = :id", {"id": item_id})
-    item = tuple(row) if row else None
     return render_template("edit.html", item=item)
 
-# 📤 Export to Excel
+
+
+# 📤 Export to Excel (dual currency: UZS + current UI currency)
 @app.get("/export")
 def export_excel():
     if not is_logged_in():
         return redirect(url_for("login"))
 
-    inventory = get_inventory()
+    ui_curr = get_curr()          # e.g. USD/AED/UZS
+    base_ccy = BASE_CCY           # "UZS"
+    inventory = get_inventory()   # (id, name, buy, sell, qty, profit, currency)
 
     wb = openpyxl.Workbook()
     sh = wb.active
     sh.title = "Inventory"
-    headers = ["ID", "Name", "Buying Price", "Selling Price", "Quantity", "Profit", "Currency"]
-    sh.append(headers)
-    for row in inventory:
-        sh.append(list(row))
 
+    # Meta block
+    sh["A1"] = "Vanta Inventory Export"
+    sh["A2"] = f"Generated at: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    sh["A3"] = f"Stored currency (DB): {base_ccy}"
+    sh["A4"] = f"UI currency: {ui_curr}"
+    start_row = 6
+
+    # Headers
+    headers = [
+        "ID",
+        "Name",
+        f"Buying ({base_ccy})",
+        f"Selling ({base_ccy})",
+        "Quantity",
+        f"Profit ({base_ccy})",
+        f"Buying ({ui_curr})",
+        f"Selling ({ui_curr})",
+        f"Profit ({ui_curr})",
+    ]
+    sh.append([""] * len(headers))  # row 5 spacer
+    sh.cell(row=start_row, column=1, value=headers[0])
+    for c, h in enumerate(headers, start=1):
+        sh.cell(row=start_row, column=c, value=h)
+
+    # Data rows
+    rowi = start_row + 1
+    total_qty = 0
+    total_profit_uzs = 0.0
+    total_profit_ui = 0.0
+
+    for it in inventory:
+        _id, name, buy_uzs, sell_uzs, qty, profit_uzs, _curr = it
+
+        # Convert DB (UZS) → UI currency
+        buy_ui   = convert_amount(buy_uzs,  from_curr=base_ccy, to_curr=ui_curr)
+        sell_ui  = convert_amount(sell_uzs, from_curr=base_ccy, to_curr=ui_curr)
+        prof_ui  = convert_amount(profit_uzs, from_curr=base_ccy, to_curr=ui_curr)
+
+        sh.cell(row=rowi, column=1, value=_id)
+        sh.cell(row=rowi, column=2, value=name)
+        sh.cell(row=rowi, column=3, value=float(buy_uzs or 0))
+        sh.cell(row=rowi, column=4, value=float(sell_uzs or 0))
+        sh.cell(row=rowi, column=5, value=int(qty or 0))
+        sh.cell(row=rowi, column=6, value=float(profit_uzs or 0))
+        sh.cell(row=rowi, column=7, value=float(buy_ui or 0))
+        sh.cell(row=rowi, column=8, value=float(sell_ui or 0))
+        sh.cell(row=rowi, column=9, value=float(prof_ui or 0))
+
+        total_qty += int(qty or 0)
+        total_profit_uzs += float(profit_uzs or 0)
+        total_profit_ui  += float(prof_ui or 0)
+        rowi += 1
+
+    # Totals row
+    sh.cell(row=rowi, column=2, value="TOTALS")
+    sh.cell(row=rowi, column=5, value=total_qty)
+    sh.cell(row=rowi, column=6, value=total_profit_uzs)
+    sh.cell(row=rowi, column=9, value=total_profit_ui)
+
+    # Basic formatting: bold headers & totals, autosize columns
+    header_row = start_row
+    for col in range(1, len(headers) + 1):
+        sh.cell(row=header_row, column=col).font = openpyxl.styles.Font(bold=True)
+    for col in [2, 5, 6, 9]:
+        sh.cell(row=rowi, column=col).font = openpyxl.styles.Font(bold=True)
+
+    # Autosize columns
+    for col in range(1, len(headers) + 1):
+        letter = openpyxl.utils.get_column_letter(col)
+        maxlen = 0
+        for r in range(1, rowi + 1):
+            v = sh.cell(row=r, column=col).value
+            vlen = len(str(v)) if v is not None else 0
+            maxlen = max(maxlen, vlen)
+        sh.column_dimensions[letter].width = min(max(10, maxlen + 2), 40)
+
+    # Save to buffer
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-
+    fname = f"inventory_export_{ui_curr}_and_{base_ccy}.xlsx"
     return send_file(
         buf,
         as_attachment=True,
-        download_name="inventory_export.xlsx",
+        download_name=fname,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
-# 📦 One-click data backup (ZIP of CSVs for every public table)
+# 📦 One-click data backup (ZIP of CSVs)
 @app.get("/admin/backup")
 def admin_backup():
     if not is_logged_in():
@@ -532,14 +850,12 @@ def admin_backup():
     conn.autocommit = True
 
     with conn.cursor() as cur:
-        cur.execute(
-            """
+        cur.execute("""
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema='public' AND table_type='BASE TABLE'
             ORDER BY table_name;
-            """
-        )
+        """)
         tables = [r[0] for r in cur.fetchall()]
 
     ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -553,7 +869,6 @@ def admin_backup():
             "note": "Data-only backup (CSV per table). Schema ensured at startup.",
         }
         zf.writestr("metadata.json", json.dumps(meta, indent=2))
-
         for t in tables:
             with conn.cursor() as c2:
                 s = io.StringIO()
@@ -565,8 +880,8 @@ def admin_backup():
     fname = f"vanta_inventory_backup_{ts}.zip"
     return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=fname)
 
-# -----------------------------------------------------------------------------
+# =========================
 # Local dev entry
-# -----------------------------------------------------------------------------
+# =========================
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=True)

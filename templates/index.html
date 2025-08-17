@@ -13,11 +13,11 @@
 <div class="kpis">
   <div class="kpi kpi-green">
     <strong>{{ t("todays_revenue") }}</strong><br>
-    {{ fmt_money(today_revenue) }}
+    {{ today_revenue | ccy | fmtmoney }}
   </div>
   <div class="kpi kpi-blue">
     <strong>{{ t("todays_profit") }}</strong><br>
-    {{ fmt_money(today_profit) }}
+    {{ today_profit | ccy | fmtmoney }}
   </div>
 </div>
 
@@ -28,41 +28,46 @@
     {% for item in inventory %}
       {# item: (id, name, buying_price, selling_price, quantity, profit, currency) #}
       <option value="{{ item[0] }}">
-        {{ item[1] }} — {{ t('stock') }}: {{ item[4] }} — {{ t('sell') }}: {{ fmt_money_auto(item[3], from_curr='UZS') }}
+        {{ item[1] }} — {{ t('stock') }}: {{ item[4] }} — {{ t('sell') }}: {{ (item[3] | ccy) | fmtmoney }}
       </option>
     {% endfor %}
   </select>
   <input type="number" name="qty" placeholder="{{ t('qty') }}" min="1" required>
-  <input type="text" name="sell_price" id="sell-price" data-money data-decimals="0" placeholder="{{ t('sell_price') }} ({{ USER_CURR }})" required>
+  <input type="text" name="sell_price" id="sell-price" data-money data-decimals="0" placeholder="{{ t('sell_price') }} ({{ CURRENCY }})" required>
   <button type="submit">{{ t('sell') }}</button>
 </form>
 
 <script>
-  // Prefill sell price with converted value to USER_CURR
+  // Prefill sell price in current UI currency (server converted via | ccy)
   const priceMap = {
     {% for item in inventory -%}
-      "{{ item[0] }}": {{ convert(item[3], 'UZS', USER_CURR) | float }},
+      "{{ item[0] }}": {{ item[3] | ccy | float }},
     {%- endfor %}
   };
-  const sel = document.getElementById('sell-item-select');
-  const priceInput = document.getElementById('sell-price');
-  if (sel && priceInput) {
-    const setPrice = () => {
+  (function(){
+    const sel = document.getElementById('sell-item-select');
+    const priceInput = document.getElementById('sell-price');
+    if (!sel || !priceInput) return;
+    function setPrice(){
       const v = priceMap[sel.value];
-      if (v != null) {
-        priceInput.value = String(Math.round(Number(v)));
-        priceInput.dispatchEvent(new Event('input'));
-      } else {
-        priceInput.value = "";
-      }
-    };
+      priceInput.value = v != null ? String(Math.round(Number(v))) : "";
+      priceInput.dispatchEvent(new Event('input'));
+    }
     sel.addEventListener('change', setPrice);
     setPrice();
-  }
+  })();
 </script>
 
 <!-- Add Item -->
-<h2>{{ t("add_item") }}</h2>
+<h2 class="add-item-title">
+  {{ t("add_item") }}
+  <span class="info-badge" tabindex="0">i
+    <span class="tooltip-box">
+      Prices you enter are in <strong>{{ CURRENCY }}</strong>, but are stored internally in <strong>UZS</strong>.
+    </span>
+  </span>
+</h2>
+
 <form action="{{ url_for('add_item') }}" method="POST" class="form-row card">
   <input type="text" name="name" placeholder="{{ t('item') }}" required>
   <input type="text" name="buying_price"  data-money data-decimals="0" placeholder="{{ t('buy') }}" required>
@@ -72,72 +77,66 @@
 </form>
 
 <!-- Filters -->
+<h2 class="filters-title">
+  {{ t("filters") }}
+  <span class="info-badge" tabindex="0">i
+    <span class="tooltip-box">
+      Filter your inventory quickly. <br>
+      • <strong>Low Stock</strong> shows items with ≤ 5 units. <br>
+      • <strong>High Profit</strong> surfaces the most profitable items.
+    </span>
+  </span>
+</h2>
+
 <form method="GET" action="{{ url_for('index') }}" class="form-row card">
   <input type="text" name="search" placeholder="{{ t('search_item') }}..." value="{{ search_query }}">
   <select name="filter">
     <option value="">{{ t('filter') }} — </option>
     <option value="low_stock"  {% if selected_filter == 'low_stock'  %}selected{% endif %}>{{ t('low_stock') }} (≤ 5)</option>
-    <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>
-      {{ t('high_profit') }} (≥ {{ fmt_money_auto(100, from_curr='UZS') }})
-    </option>
+    <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>{{ t('high_profit') }}</option>
   </select>
   <button type="submit">{{ t('apply') }}</button>
 </form>
+
 
 <!-- Language & Currency Panel -->
 <div class="prefs-card">
   <h3 class="prefs-title">{{ t("lang_curr") }}</h3>
 
-  <form method="POST" action="{{ url_for('set_prefs') }}" class="prefs-form">
+  <!-- Language form -->
+  <form method="POST" action="{{ url_for('set_prefs') }}" class="prefs-form" id="lang-form">
     <label>{{ t("language") }}</label>
-    <select name="lang">
+    <select name="lang" id="lang-select">
       <option value="en" {{ 'selected' if USER_LANG=='en' else '' }}>English</option>
       <option value="uz" {{ 'selected' if USER_LANG=='uz' else '' }}>Uzbek</option>
     </select>
+    <div class="prefs-actions">
+      <button type="submit">{{ t("save") }}</button>
+    </div>
+  </form>
 
+  <!-- Currency form -->
+  <form action="{{ url_for('set_currency') }}" method="POST" class="prefs-form" id="currency-form">
     <label>{{ t("currency") }}</label>
-    <select name="curr" id="curr">
-      <option value="USD" {{ 'selected' if USER_CURR=='USD' else '' }}>USD ($)</option>
-      <option value="AED" {{ 'selected' if USER_CURR=='AED' else '' }}>AED (د.إ)</option>
-      <option value="UZS" {{ 'selected' if USER_CURR=='UZS' else '' }}>UZS (so'm)</option>
+    <select name="currency" id="currency-select">
+      <option value="USD" {{ 'selected' if CURRENCY=='USD' else '' }}>USD ($)</option>
+      <option value="AED" {{ 'selected' if CURRENCY=='AED' else '' }}>AED (د.إ)</option>
+      <option value="UZS" {{ 'selected' if CURRENCY=='UZS' else '' }}>UZS (so'm)</option>
     </select>
-
     <div class="prefs-actions">
       <button type="submit">{{ t("save") }}</button>
       <button type="button" id="auto-detect">{{ t("auto_detect") }}</button>
     </div>
   </form>
 
-  <small id="rateDisplay">{{ t("live_rates_loading") }}</small>
+  <!-- Server-rendered live FX (no JS fetch needed) -->
+  <small>
+    1 USD = {{ usd_to_aed | round(2) }} AED | {{ usd_to_uzs | round(0) }} UZS | 1.00 USD
+  </small>
 </div>
 
+<!-- Auto-detect fills both selects; you can hit Save afterwards -->
 <script>
-(async () => {
-  const currSel = document.getElementById('curr');
-  const rateDisplay = document.getElementById('rateDisplay');
-
-  async function loadRates() {
-    try {
-      const base = currSel?.value || 'USD';
-      const res = await fetch(`/api/rates?base=${encodeURIComponent(base)}`);
-      const data = await res.json();
-      if (data && data.rates) {
-        const r = data.rates;
-        const toAED = (r.AED ?? 0).toFixed(2);
-        const toUZS = (r.UZS ?? 0).toFixed(0);
-        const toUSD = (r.USD ?? 0).toFixed(2);
-        rateDisplay.textContent = `1 ${data.base} = ${toAED} AED | ${toUZS} UZS | ${toUSD} USD`;
-      } else {
-        rateDisplay.textContent = "{{ t('rates_unavailable') }}";
-      }
-    } catch {
-      rateDisplay.textContent = "{{ t('rates_unavailable') }}";
-    }
-  }
-
-  await loadRates();
-  currSel?.addEventListener('change', loadRates);
-
   document.getElementById('auto-detect')?.addEventListener('click', async () => {
     try {
       const r = await fetch('/api/geo');
@@ -145,12 +144,10 @@
       const country = geo.country || '';
       const langCode = (geo.languages || 'en').split(',')[0].split('-')[0];
       const currMap = { 'AE': 'AED', 'UZ': 'UZS', 'US': 'USD' };
-      document.querySelector('select[name="lang"]').value = (langCode === 'uz' ? 'uz' : 'en');
-      document.querySelector('select[name="curr"]').value = currMap[country] || 'USD';
-      await loadRates();
-    } catch {}
+      document.getElementById('lang-select').value = (langCode === 'uz' ? 'uz' : 'en');
+      document.getElementById('currency-select').value = currMap[country] || 'USD';
+    } catch (e) { console.warn('Geo detect failed', e); }
   });
-})();
 </script>
 
 <!-- Inventory Table -->
@@ -162,9 +159,9 @@
       <th>#</th>
       <th>{{ t("item") }}</th>
       <th>{{ t("quantity") }}</th>
-      <th>{{ t("buy") }} ({{ USER_CURR }})</th>
-      <th>{{ t("sell") }} ({{ USER_CURR }})</th>
-      <th>{{ t("profit") }} ({{ USER_CURR }})</th>
+      <th>Sotib olish ({{ CURRENCY }})</th>
+      <th>Sotish ({{ CURRENCY }})</th>
+      <th>Foyda ({{ CURRENCY }})</th>
       <th>{{ t("action") }}</th>
     </tr>
   </thead>
@@ -175,9 +172,9 @@
         <td>{{ loop.index }}</td>
         <td>{{ item[1] }}</td>
         <td>{{ item[4] }}</td>
-        <td>{{ fmt_money_auto(item[2], from_curr='UZS') }}</td>
-        <td>{{ fmt_money_auto(item[3], from_curr='UZS') }}</td>
-        <td>{{ fmt_money_auto(row_profit, from_curr='UZS') }}</td>
+        <td data-label="Sotib olish ({{ CURRENCY }})">{{ item[2] | ccy | fmtmoney }}</td>
+        <td data-label="Sotish ({{ CURRENCY }})">{{ item[3] | ccy | fmtmoney }}</td>
+        <td data-label="Foyda ({{ CURRENCY }})">{{ row_profit | ccy | fmtmoney }}</td>
         <td class="actions">
           <a href="{{ url_for('edit_item', item_id=item[0]) }}">✏️</a>
           <a href="{{ url_for('delete_item', item_id=item[0]) }}">❌</a>
@@ -198,7 +195,7 @@
 </div>
 
 <script>
-  const currency = "{{ USER_CURR }}";
+  const currency = "{{ CURRENCY }}";
   const locale = "{{ 'en-US' if USER_LANG == 'en' else 'uz-UZ' }}";
   const numberFmt = new Intl.NumberFormat(locale, { style: 'currency', currency });
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -319,4 +316,22 @@
 })();
 </script>
 
+<!-- Export & Backup -->
+<h2 class="export-title">
+  {{ t("export_backup") }}
+  <span class="info-badge" tabindex="0">i
+    <span class="tooltip-box">
+      <strong>Export Excel</strong> downloads your current inventory. <br>
+      <strong>Backup DB</strong> creates a ZIP with CSVs of your tables.
+    </span>
+  </span>
+</h2>
+
+<div class="form-row card">
+  <a href="{{ url_for('export_excel') }}" class="btn btn-green">📊 {{ t("export_excel") }}</a>
+  <a href="{{ url_for('admin_backup') }}" class="btn">💾 {{ t("backup_db") }}</a>
+</div>
+
+
 {% endblock %}
+
