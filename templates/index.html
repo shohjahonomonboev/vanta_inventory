@@ -59,14 +59,10 @@
 </script>
 
 <!-- Add Item -->
-<h2 class="add-item-title">
-  {{ t("add_item") }}
-  <span class="info-badge" tabindex="0">i
-    <span class="tooltip-box">
-      Prices you enter are in <strong>{{ CURRENCY }}</strong>, but are stored internally in <strong>UZS</strong>.
-    </span>
-  </span>
-</h2>
+<h2 class="add-item-title">{{ t("add_item") }}</h2>
+<p class="hint">
+  Prices you enter are in <strong>{{ CURRENCY }}</strong>, stored internally in <strong>UZS</strong>.
+</p>
 
 <form action="{{ url_for('add_item') }}" method="POST" class="form-row card">
   <input type="text" name="name" placeholder="{{ t('item') }}" required>
@@ -76,17 +72,10 @@
   <button type="submit">{{ t('add') }}</button>
 </form>
 
-<!-- Filters -->
-<h2 class="filters-title">
-  {{ t("filters") }}
-  <span class="info-badge" tabindex="0">i
-    <span class="tooltip-box">
-      Filter your inventory quickly. <br>
-      • <strong>Low Stock</strong> shows items with ≤ 5 units. <br>
-      • <strong>High Profit</strong> surfaces the most profitable items.
-    </span>
-  </span>
-</h2>
+
+
+<!-- Filters (no extra hint text) -->
+<h2 class="filters-title">{{ t("filters") }}</h2>
 
 <form method="GET" action="{{ url_for('index') }}" class="form-row card">
   <input type="text" name="search" placeholder="{{ t('search_item') }}..." value="{{ search_query }}">
@@ -97,6 +86,7 @@
   </select>
   <button type="submit">{{ t('apply') }}</button>
 </form>
+
 
 
 <!-- Language & Currency Panel -->
@@ -312,20 +302,17 @@
 </script>
 
 <!-- Export & Backup -->
-<h2 class="export-title">
-  {{ t("export_backup") }}
-  <span class="info-badge" tabindex="0">i
-    <span class="tooltip-box">
-      <strong>Export Excel</strong> downloads your current inventory. <br>
-      <strong>Backup DB</strong> creates a ZIP with CSVs of your tables.
-    </span>
-  </span>
-</h2>
+<h2 class="export-title">{{ t("export_backup") }}</h2>
+<p class="hint">
+  <strong>Export Excel</strong> downloads your current inventory. 
+  <strong>Backup DB</strong> creates a ZIP with CSVs of your tables.
+</p>
 
 <div class="form-row card">
   <a href="{{ url_for('export_excel') }}" class="btn btn-green">📊 {{ t("export_excel") }}</a>
   <a href="{{ url_for('admin_backup') }}" class="btn">💾 {{ t("backup_db") }}</a>
 </div>
+
 
 
 {% endblock %}

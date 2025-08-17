@@ -18,6 +18,31 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ APP_VERSION }}">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   {% block head %}{% endblock %}
+  <style>
+    .hint{
+      margin: 4px 0 16px; /* consistent gap under headings */
+      color: var(--muted);
+      font-size: .9rem;
+      line-height: 1.4;
+    }
+
+    @media (max-width:600px){
+      .hint{ font-size: .95rem; }
+    }
+
+    /* Ensure all headings are consistently capitalized */
+    h1, h2, h3, h4, h5, h6,
+    .add-item-title,
+    .filters-title,
+    .export-title,
+    .prefs-title { text-transform: capitalize; }
+
+    /* Add breathing room above section headings */
+    h2, .add-item-title, .filters-title, .export-title, .prefs-title {
+      margin-top: 28px;
+      margin-bottom: 6px; /* tighten before hints */
+    }
+  </style>
 </head>
 <body>
   <header class="topbar card container">

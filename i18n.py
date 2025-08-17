@@ -14,6 +14,8 @@ I18N = {
         "auto_detect": "Auto-detect",
         "rates_unavailable": "Rates unavailable.",
         "live_rates_loading": "Live rates loading…",
+        "preferences_saved": "Preferences saved.",
+        "welcome_back": "Welcome back, Commander.",
 
         # Inventory
         "inventory": "Inventory",
@@ -33,7 +35,12 @@ I18N = {
         "filter": "Filter",
         "apply": "Apply",
 
-        # Insights
+        # Filters
+        "filters": "Filters",
+        "low_stock_hint": "Low Stock shows items with ≤ 5 units.",
+        "high_profit_hint": "High Profit surfaces the most profitable items.",
+
+        # Insights / Charts
         "todays_revenue": "Today's Revenue",
         "todays_profit": "Today's Profit",
         "low_stock": "Low Stock",
@@ -41,7 +48,21 @@ I18N = {
         "insights": "Insights",
         "backup_now": "Backup Now",
         "download_excel": "Download Excel",
-        "preferences_saved": "Preferences saved."
+
+        # Export & Backup
+        "export_backup": "Export & Backup",
+        "export_excel": "Export Excel",
+        "backup_db": "Backup DB",
+
+        # Chart titles/labels
+        "top_profit_title": "Top 5 Profitable Items",
+        "top_profit_label": "Top 5 Profitable Items",
+        "low_stock_title": "Lowest Stock (5)",
+        "low_stock_label": "Lowest Stock (5)",
+        "stock_tracker_title": "Stock Tracker",
+        "stock_tracker_label": "Stock Tracker",
+        "revenue_7d_title": "Revenue — Last 7 Days",
+        "daily_revenue_label": "Daily Revenue",
     },
 
     "uz": {
@@ -49,19 +70,21 @@ I18N = {
         "app_name": "Jasurbek do'koni",
         "toggle_theme": "Oq va Qora tema",
         "logout": "Chiqish",
-        "made_with": "Vanta tomonidan ⚡ bilan yaratilgan",
+        "made_with": "Shohjahon tomonidan ⚡ bajarilgan",
         "version": "Versiya",
 
-        "lang_curr": "Til va Valyuta",
+        "lang_curr": "Til & Valyuta",
         "language": "Til",
         "currency": "Valyuta",
         "save": "Saqlash",
         "auto_detect": "Avto-aniqlash",
         "rates_unavailable": "Kurslar mavjud emas.",
         "live_rates_loading": "Jonli kurslar yuklanmoqda…",
+        "preferences_saved": "Sozlamalar saqlandi.",
+        "welcome_back": "Xush kelibsiz, Komandir.",
 
         # Inventory
-        "inventory": "do'koni",
+        "inventory": "Umumiy jadval",
         "item": "Mahsulot",
         "quantity": "Miqdor",
         "buy": "Sotib olish",
@@ -78,18 +101,36 @@ I18N = {
         "filter": "Filtr",
         "apply": "Qoʻllash",
 
-        # Insights
+        # Filters
+        "filters": "Filtrlar",
+        "low_stock_hint": "Kam zaxira — ≤ 5 dona mahsulotlar.",
+        "high_profit_hint": "Yuqori foyda eng foydali mahsulotlarni ko‘rsatadi.",
+
+        # Insights / Charts
         "todays_revenue": "Bugungi daromad",
         "todays_profit": "Bugungi foyda",
         "low_stock": "Kam zaxira",
         "high_profit": "Yuqori foyda",
-        "insights": "Tahlillar",
+        "insights": "Tahlil grafikasi",
         "backup_now": "Zaxira nusxa olish",
         "download_excel": "Excel yuklab olish",
-        "preferences_saved": "Sozlamalar saqlandi."
+
+        # Export & Backup
+        "export_backup": "Eksport va Zaxira",
+        "export_excel": "Excel eksport",
+        "backup_db": "Bazani zaxiralash",
+
+        # Chart titles/labels
+        "top_profit_title": "Eng foydali 5 ta mahsulot",
+        "top_profit_label": "Eng foydali 5 ta mahsulot",
+        "low_stock_title": "Eng kam zaxira (5)",
+        "low_stock_label": "Eng kam zaxira (5)",
+        "stock_tracker_title": "Zaxira dinamikasi",
+        "stock_tracker_label": "Zaxira dinamikasi",
+        "revenue_7d_title": "Oxirgi 7 kun — Daromad",
+        "daily_revenue_label": "Kundalik daromad",
     }
 }
-
 
 def t(key, lang="en"):
     return I18N.get(lang, I18N["en"]).get(key, key)

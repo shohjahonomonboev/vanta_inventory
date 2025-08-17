@@ -168,7 +168,7 @@ tbody td { text-align: center; }
     background: #1d4ed8;
 }
 
-<style>
+
   .add-item-title {
     position: relative;
     display: inline-flex;
@@ -234,14 +234,6 @@ tbody td { text-align: center; }
     pointer-events: auto;
   }
 
-  /* Respect small screens: make tooltip full width under title */
-  @media (max-width: 560px) {
-    .tooltip-box {
-      left: 0;
-      right: 0;
-      min-width: unset;
-      max-width: unset;
-    }
-    .tooltip-box::after { left: 12px; }
-  }
-</style>
+  .prefs-actions button:hover {
+    background: #1d4ed8;
+}
