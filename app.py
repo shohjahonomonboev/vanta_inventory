@@ -425,7 +425,7 @@ def index():
         usd_to_uzs=usd_to_uzs,
     )
 
-# ➕ Add Item (UPSERT by name) — uses db.db_one/db.db_exec only
+# ➕ Add Item (UPSERT by name) — portable for SQLite & Postgres
 @app.post("/add")
 def add_item():
     if not is_logged_in():
@@ -474,13 +474,13 @@ def add_item():
 
     # ---- Currency conversion (UI → BASE_CCY) ----
     try:
-        buying_price  = convert_amount(bp_ui,  from_curr=get_curr(), to_curr=BASE_CCY)
+        buying_price  = convert_amount(bp_ui, from_curr=get_curr(), to_curr=BASE_CCY)
         selling_price = convert_amount(sp_ui, from_curr=get_curr(), to_curr=BASE_CCY)
     except Exception as e:
         flash(f"Currency conversion failed: {e}", "error")
         return redirect(url_for("index"))
 
-    # ---- UPSERT via db layer ----
+    # ---- UPSERT via db layer (let DB defaults handle timestamps) ----
     try:
         existing = db.db_one("SELECT id, quantity FROM inventory WHERE name=:n", {"n": name})
         if existing:
@@ -501,8 +501,8 @@ def add_item():
         else:
             db.db_exec(
                 """
-                INSERT INTO inventory (name, buying_price, selling_price, quantity, created_at, updated_at)
-                VALUES (:n, :bp, :sp, :q, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                INSERT INTO inventory (name, buying_price, selling_price, quantity)
+                VALUES (:n, :bp, :sp, :q)
                 """,
                 {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity},
             )
@@ -513,78 +513,19 @@ def add_item():
     return redirect(url_for("index"))
 
 
-    # Optional (keep or remove): basic sanity check
-    # if sp_ui < bp_ui:
-    #     flash("Selling price is below buying price.", "warning")
 
-    # ---- Currency conversion: UI currency -> BASE_CCY ----
-    from_curr = get_curr()        # e.g., "AED", "USD", etc. (your current UI currency)
-    to_curr   = BASE_CCY          # your canonical storage currency
-
-    try:
-        buying_price  = convert_amount(bp_ui, from_curr=from_curr, to_curr=to_curr)
-        selling_price = convert_amount(sp_ui, from_curr=from_curr, to_curr=to_curr)
-    except Exception as e:
-        flash(f"Currency conversion failed: {e}", "error")
-        return redirect(url_for("index"))
-
-    # ---- Persist (UPSERT by name) ----
-    try:
-        conn = get_db()
-        cur  = conn.cursor()
-
-        # Does item already exist?
-        cur.execute("SELECT id, quantity FROM inventory WHERE name = ?", (name,))
-        row = cur.fetchone()
-
-        if row:
-            item_id, existing_qty = row
-            new_qty = (existing_qty or 0) + quantity
-            cur.execute(
-                """
-                UPDATE inventory
-                   SET buying_price = ?,
-                       selling_price = ?,
-                       quantity = ?,
-                       updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?
-                """,
-                (buying_price, selling_price, new_qty, item_id),
-            )
-            action_msg = f"Updated '{name}': quantity +{quantity} → {new_qty}."
-        else:
-            cur.execute(
-                """
-                INSERT INTO inventory (name, buying_price, selling_price, quantity, created_at, updated_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """,
-                (name, buying_price, selling_price, quantity),
-            )
-            action_msg = f"Added '{name}' (qty {quantity})."
-
-        conn.commit()
-        flash(action_msg, "success")
-
-    except Exception as e:
-        # Safe rollback
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        flash(f"Failed to save item: {e}", "error")
-
-    return redirect(url_for("index"))
-
-
-# 💵 Sell Item
 @app.post("/sell")
 def sell_item():
     if not is_logged_in():
         return redirect(url_for("login"))
 
     item_id = int(request.form["item_id"])
-    qty = int(request.form["qty"])
-    sell_price = convert_amount(sell_price_ui, from_curr=get_curr(), to_curr=BASE_CCY)  # now in UZS
+    qty     = int(request.form["qty"])
+
+    # get the UI price from any of these field names
+    raw = request.form.get("sell_price") or request.form.get("price") or request.form.get("sell")
+    sell_price_ui = parse_money(raw)
+    sell_price    = convert_amount(sell_price_ui, from_curr=get_curr(), to_curr=BASE_CCY)  # store in UZS
 
     row = db.db_one("SELECT quantity, buying_price FROM inventory WHERE id=:id", {"id": item_id})
     if not row:
@@ -605,6 +546,7 @@ def sell_item():
 
     flash(f"Sold {qty} unit(s). Profit: {fmt_money(profit)}", "success")
     return redirect(url_for("index"))
+
 
 # ❌ Delete Item
 @app.get("/delete/<int:item_id>")

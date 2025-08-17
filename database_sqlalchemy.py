@@ -53,6 +53,7 @@ def make_engine():
     raise last_err
 
 engine = make_engine()
+
 # ---- Schema helpers ----
 def _column_exists(conn, table: str, col: str) -> bool:
     if DATABASE_URL.startswith("postgresql"):
@@ -76,8 +77,6 @@ def _ensure_column(conn, table: str, col: str, col_type_sql: str):
 def _ensure_index(conn, index_name: str, table: str, column: str, unique: bool = False):
     uniq = "UNIQUE " if unique else ""
     conn.exec_driver_sql(f"CREATE {uniq}INDEX IF NOT EXISTS {index_name} ON {table}({column});")
-
-
 
 # --- Helpers ---
 def is_sqlite() -> bool:
@@ -143,13 +142,12 @@ def ensure_schema():
             """CREATE TABLE IF NOT EXISTS inventory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                -- rolling columns added later via _ensure_column
                 buying_price REAL NOT NULL DEFAULT 0,
                 selling_price REAL NOT NULL DEFAULT 0,
                 quantity INTEGER NOT NULL DEFAULT 0,
                 profit REAL NOT NULL DEFAULT 0,
                 currency TEXT DEFAULT 'UZS',
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );""",
             """CREATE TABLE IF NOT EXISTS sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,7 +169,6 @@ def ensure_schema():
             """CREATE TABLE IF NOT EXISTS inventory (
                 id SERIAL PRIMARY KEY,
                 name TEXT NOT NULL,
-                -- rolling columns added later via _ensure_column
                 buying_price NUMERIC(14,2) NOT NULL DEFAULT 0,
                 selling_price NUMERIC(14,2) NOT NULL DEFAULT 0,
                 quantity INTEGER NOT NULL DEFAULT 0,
@@ -196,32 +193,44 @@ def ensure_schema():
 
     # ---- Apply schema + rolling upgrades ----
     with engine.begin() as conn:
+        # 1) Create base tables first
         for s in stmts:
             conn.exec_driver_sql(s)
 
-        # Rolling column upgrades (safe on both SQLite & Postgres)
-        _ensure_column(conn, "inventory", "category", "TEXT")
+        # 2) Rolling column upgrades (add only if missing)
+        _ensure_column(conn, "inventory", "category",   "TEXT")
+        _ensure_column(conn, "inventory", "created_at", "TIMESTAMP")
         _ensure_column(conn, "inventory", "updated_at", "TIMESTAMP")
 
-        # One-time backfill for updated_at (no-op if already set)
-        conn.exec_driver_sql("""
-            UPDATE inventory
-               SET updated_at = CURRENT_TIMESTAMP
-             WHERE updated_at IS NULL
-        """)
+        # 3) Backfill timestamps once (idempotent)
+        conn.exec_driver_sql(
+            "UPDATE inventory SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"
+        )
+        conn.exec_driver_sql(
+            "UPDATE inventory SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"
+        )
 
-        # Drop legacy non-unique index if it exists
+        # 4) On Postgres, ensure defaults so future INSERTs auto-fill
+        if DATABASE_URL.startswith("postgresql"):
+            conn.exec_driver_sql(
+                "ALTER TABLE inventory ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE inventory ALTER COLUMN updated_at SET DEFAULT CURRENT_TIMESTAMP"
+            )
+
+        # 5) Drop legacy non-unique index (ignore errors)
         try:
             conn.exec_driver_sql("DROP INDEX IF EXISTS idx_inventory_name;")
         except Exception:
             pass
 
-        # Deduplicate names before enforcing uniqueness
+        # 6) Deduplicate names before unique index
         deduped = _dedupe_inventory_names(conn)
         if deduped:
             print(f"Schema: deduped {deduped} duplicate inventory name(s).")
 
-        # Indexes (idempotent)
+        # 7) Indices (idempotent)
         _ensure_index(conn, "idx_inventory_name_unique", "inventory", "name", unique=True)
         _ensure_index(conn, "idx_inventory_cat",  "inventory", "category")
         _ensure_index(conn, "idx_inventory_qty",  "inventory", "quantity")
@@ -229,8 +238,6 @@ def ensure_schema():
         _ensure_index(conn, "idx_sales_date",     "sales",     "sold_at")
 
     _schema_checked = True
-
-
 
 # --- DB helpers ---
 def db_all(sql, params=None):
