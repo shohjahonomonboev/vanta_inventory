@@ -260,6 +260,18 @@ else:
 def is_logged_in():
     return bool(session.get("logged_in"))
 
+# --- Admin allowlist for admin-only routes (like /admin/backup)
+ADMIN_ADMINS_ENV = os.environ.get("ADMIN_ADMINS")
+if ADMIN_ADMINS_ENV:
+    ADMIN_ADMINS = {u.strip() for u in ADMIN_ADMINS_ENV.split(",") if u.strip()}
+else:
+    # By default, everyone in ADMIN_USERS is an admin
+    ADMIN_ADMINS = set(ADMIN_USERS.keys())
+
+def is_admin_user():
+    return session.get("user") in ADMIN_ADMINS
+
+
 
 # =========================
 # Data access
@@ -670,8 +682,10 @@ def export_excel():
 # 📦 Data backup (ZIP of CSVs) — import psycopg2 lazily so Windows dev can skip it
 @app.get("/admin/backup")
 def admin_backup():
-    if not is_logged_in():
+    if not (is_logged_in() and is_admin_user()):
         return redirect(url_for("login"))
+    # ... rest of function stays the same ...
+
 
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
