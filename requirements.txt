@@ -10,7 +10,7 @@ colorama==0.4.6
 
 # --- Database ---
 SQLAlchemy==2.0.32
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.9 ; platform_system != "Windows"
 alembic==1.13.2   # migrations if needed
 
 # --- Excel / Files ---

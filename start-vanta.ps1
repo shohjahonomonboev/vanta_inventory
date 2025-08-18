@@ -1,31 +1,31 @@
-# --- start-vanta.ps1 ---
+# start-vanta.ps1 — minimal, safe Windows runner (Waitress)
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# Go to this script's folder
-Set-Location -Path $PSScriptRoot
+# Go to project root
+$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $ProjectRoot
 
-# Sync with GitHub main (safe if no local changes)
-git fetch origin
-git reset --hard origin/main
-
-# Free port 5000 if something is listening
-# Free port 5000 if something is listening (ignore if already gone)
-$procs = Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue |
-         Select-Object -Expand OwningProcess -Unique
-foreach ($pid in $procs) {
-  Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+# Create & activate venv if needed
+if (-not (Test-Path ".\venv\Scripts\Activate.ps1")) {
+  Write-Host ">> Creating Python venv..." -ForegroundColor Cyan
+  python -m venv venv
 }
-# venv bootstrap
-if (!(Test-Path .\venv)) { python -m venv venv }
-.\venv\Scripts\Activate.ps1
+Write-Host ">> Activating venv" -ForegroundColor Cyan
+. .\venv\Scripts\Activate.ps1
 
-# Deps
-pip install -r requirements.txt
+# Install deps (quiet)
+Write-Host ">> Installing dependencies" -ForegroundColor Cyan
+pip install --disable-pip-version-check -q -r requirements.txt
+pip install --disable-pip-version-check -q waitress
 
-# Env vars for local run
-$env:ADMIN_USERS = "vanta:beastmode,jasur:jasur2025"
-$env:DB_PATH     = (Join-Path $PWD "inventory.db")
-if (-not $env:PORT) { $env:PORT = "5000" }
+# Minimal env defaults for local
+if (-not $env:FLASK_ENV)  { $env:FLASK_ENV = "production" }
+if (-not $env:SECRET_KEY) { $env:SECRET_KEY = "dev-only-secret-change-me" }
 
-Write-Host ">>> Starting Vanta on http://127.0.0.1:$($env:PORT)" -ForegroundColor Cyan
-python app.py
+Write-Host ">> Starting app with Waitress" -ForegroundColor Green
+Write-Host "   URL: http://127.0.0.1:5000"
+Write-Host "   FLASK_ENV=$($env:FLASK_ENV)"
+
+# Run the app
+waitress-serve --listen="127.0.0.1:5000" app:app
