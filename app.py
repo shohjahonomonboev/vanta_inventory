@@ -1,8 +1,16 @@
-# app.py — Vanta Inventory (clean rewrite to fix Decimal+None and unreachable code)
+# app.py — Vanta Inventory (FINAL, merged, advanced)
+# - Cleaned imports & datetime usage
+# - Robust currency/i18n helpers (USD/AED/UZS)
+# - Search + filter + 6-way sort (server param → in-memory)
+# - Sold Items (Today) with Return (restock) & Delete
+# - Excel export (dual currency) + DB backup (CSV ZIP)
+# - Health/version + GEO/Rates APIs
+# - Login/logout + edit/add/sell
+# - Works with sqlite or Postgres via database_sqlalchemy
 
-import os, io, time, json, zipfile, datetime
-from urllib.parse import urlparse
+import os, io, time, json, zipfile, logging, sys
 from decimal import Decimal
+from urllib.parse import urlparse
 
 from flask import (
     Flask, render_template, request, redirect, url_for,
@@ -21,10 +29,30 @@ except Exception:
 
 import requests
 
-# Your DB helpers
+# Your DB helpers (must expose db_all, db_one, db_exec, DATABASE_URL)
 import database_sqlalchemy as db
 from database_sqlalchemy import ensure_schema
 from i18n import t
+
+import sqlite3  # kept for local helpers (optional)
+from datetime import datetime, date
+
+# =========================
+# Optional local sqlite helpers
+# =========================
+DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "local.db"))
+
+def get_conn():
+    """Local sqlite connector (not used by main path, kept for local ops if needed)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def get_today_bounds():
+    today = date.today()
+    start = datetime.combine(today, datetime.min.time()).isoformat()
+    end   = datetime.combine(today, datetime.max.time()).isoformat()
+    return start, end
 
 
 # =========================
@@ -53,8 +81,8 @@ def fmt_money(value, curr=None, lang=None):
         except Exception:
             return f"{value} {curr}"
 
-# Robust USD-based FX with caching
-_FX_CACHE = {"rates": None, "ts": 0}  # 1 USD = rates[currency]
+# Live USD-based FX with caching (1 USD = rates[currency])
+_FX_CACHE = {"rates": None, "ts": 0}
 def _fetch_usd_rates():
     now = time.time()
     if _FX_CACHE["rates"] and (now - _FX_CACHE["ts"]) < 3600:
@@ -142,8 +170,8 @@ def convert_amount(value, from_curr=None, to_curr=None):
 def fmt_money_auto(value, from_curr=None):
     return fmt_money(convert_amount(value, from_curr=from_curr, to_curr=get_curr()))
 
-# Legacy money helpers for parsing/formatting numerics
-def money(v, decimals=0):
+# Legacy numeric helpers (renamed to avoid clashing with Jinja filter name)
+def money_plain(v, decimals=0):
     try:
         v = float(str(v).replace(",", ""))
     except (TypeError, ValueError):
@@ -163,28 +191,27 @@ def parse_money(s):
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-only-change-me")
 
-# ---- error logging to console (works on Render) ----
-import logging, sys
+# Logging (works on Render)
 handler = logging.StreamHandler(sys.stdout)
 handler.setLevel(logging.INFO)
 app.logger.addHandler(handler)
 app.logger.setLevel(logging.INFO)
 
-# ---- ensure DB schema at startup ----
+# Ensure DB schema
 with app.app_context():
     try:
         ensure_schema()
         app.logger.info("✅ Database schema ensured at startup.")
-    except Exception as e:
+    except Exception:
         app.logger.exception("⚠️ Failed to ensure schema")
 
-# ---- global error handler -> stack traces go to logs ----
+# Global error handler
 @app.errorhandler(Exception)
 def handle_error(e):
     app.logger.exception("Unhandled exception")
     return "Internal Server Error", 500
 
-# ---- Jinja filters / context ----
+# Jinja filters / context
 @app.before_request
 def _inject_currency():
     g.CURRENCY = get_curr()
@@ -198,7 +225,8 @@ def ccy(amount):
 def fmtmoney(amount):
     return fmt_money(amount, curr=get_curr(), lang=get_lang())
 
-app.jinja_env.filters["money"] = money
+# Back-compat: 'money' filter → currency formatter
+app.jinja_env.filters["money"] = fmtmoney
 
 @app.context_processor
 def inject_helpers():
@@ -210,7 +238,7 @@ def inject_helpers():
         "USER_LANG": lang,
         "USER_CURR": get_curr(),
         "CURRENCY": get_curr(),
-        "t": lambda key: t(key, lang),
+        "t": lambda key, _lang=None: t(key, lang if _lang is None else _lang),
     }
 
 
@@ -260,17 +288,15 @@ else:
 def is_logged_in():
     return bool(session.get("logged_in"))
 
-# --- Admin allowlist for admin-only routes (like /admin/backup)
+# Admin allowlist
 ADMIN_ADMINS_ENV = os.environ.get("ADMIN_ADMINS")
 if ADMIN_ADMINS_ENV:
     ADMIN_ADMINS = {u.strip() for u in ADMIN_ADMINS_ENV.split(",") if u.strip()}
 else:
-    # By default, everyone in ADMIN_USERS is an admin
     ADMIN_ADMINS = set(ADMIN_USERS.keys())
 
 def is_admin_user():
     return session.get("user") in ADMIN_ADMINS
-
 
 
 # =========================
@@ -306,6 +332,19 @@ def index():
     sort_by         = request.args.get("sort_by", "id")
     direction       = request.args.get("direction", "asc")
 
+    # Map ?sort=name_asc|name_desc|qty_asc|qty_desc|price_asc|price_desc → in-memory sorter
+    sort_param = request.args.get("sort")
+    if sort_param:
+        mapping = {
+            "name_asc":  ("name", "asc"),
+            "name_desc": ("name", "desc"),
+            "qty_asc":   ("quantity", "asc"),
+            "qty_desc":  ("quantity", "desc"),
+            "price_asc": ("price", "asc"),
+            "price_desc":("price", "desc"),
+        }
+        sort_by, direction = mapping.get(sort_param, (sort_by, direction))
+
     # ---------- data ----------
     inventory = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
     using_sqlite = db.DATABASE_URL.startswith("sqlite")
@@ -332,7 +371,7 @@ def index():
         inventory = [it for it in inventory if (it[5] or 0) >= 100]
 
     # ---------- sorting (None-safe) ----------
-    sort_map = {"name": 1, "quantity": 4, "profit": 5}
+    sort_map = {"name": 1, "quantity": 4, "profit": 5, "price": 3}
     if sort_by in sort_map:
         idx = sort_map[sort_by]
         inventory = sorted(
@@ -386,6 +425,36 @@ def index():
     stock_labels = [it[1] for it in inventory]
     stock_values = [nz_int(it[4]) for it in inventory]
 
+    # ---------- Sold Items — Today (JOIN for item name; alias qty→quantity) ----------
+    if using_sqlite:
+        sales_today = db.db_all("""
+            SELECT s.id,
+                   s.item_id,
+                   i.name,
+                   s.qty        AS quantity,
+                   s.sell_price AS sell_price,
+                   s.profit     AS profit,
+                   s.sold_at    AS sold_at
+            FROM sales s
+            JOIN inventory i ON i.id = s.item_id
+            WHERE DATE(s.sold_at) = DATE('now','localtime')
+            ORDER BY s.sold_at DESC
+        """)
+    else:
+        sales_today = db.db_all("""
+            SELECT s.id,
+                   s.item_id,
+                   i.name,
+                   s.qty        AS quantity,
+                   s.sell_price AS sell_price,
+                   s.profit     AS profit,
+                   s.sold_at    AS sold_at
+            FROM sales s
+            JOIN inventory i ON i.id = s.item_id
+            WHERE DATE(s.sold_at) = CURRENT_DATE
+            ORDER BY s.sold_at DESC
+        """)
+
     # ---------- FX for footer ----------
     _base, _rates = _derive_rates_from_usd("USD")
     usd_to_aed = _rates.get("AED", 0)
@@ -412,7 +481,9 @@ def index():
         sales_values=sales_values,
         stock_labels=stock_labels,
         stock_values=stock_values,
-        # today
+        # today sales block
+        sales_today=sales_today,
+        # today totals
         today_revenue=today_revenue,
         today_profit=today_profit,
         # fx
@@ -475,33 +546,96 @@ def add_item():
     return redirect(url_for("index"))
 
 
-# 🛒 Sell Item
+# 🛒 Sell Item  (FINAL)
 @app.post("/sell")
 def sell_item():
     if not is_logged_in():
         return redirect(url_for("login"))
 
-    item_id = int(request.form["item_id"])
-    qty     = int(request.form["qty"])
-    raw = request.form.get("sell_price") or request.form.get("price") or request.form.get("sell")
-    sell_price_ui = parse_money(raw)
+    try:
+        item_id = int(request.form["item_id"])
+        qty     = int(request.form["qty"])
+    except Exception:
+        flash("Invalid item or quantity.", "error")
+        return redirect(url_for("index"))
+
+    # price comes from UI currency → convert to DB currency (UZS)
+    raw_price = request.form.get("sell_price") or request.form.get("price") or request.form.get("sell")
+    sell_price_ui = parse_money(raw_price)
     sell_price    = convert_amount(sell_price_ui, from_curr=get_curr(), to_curr=BASE_CCY)
 
     row = db.db_one("SELECT quantity, buying_price FROM inventory WHERE id=:id", {"id": item_id})
     if not row:
-        flash("Item not found!", "error"); return redirect(url_for("index"))
+        flash("Item not found!", "error")
+        return redirect(url_for("index"))
 
     stock_qty, buy_price = int(row[0] or 0), float(row[1] or 0)
+    if qty <= 0:
+        flash("Quantity must be greater than 0.", "error")
+        return redirect(url_for("index"))
     if qty > stock_qty:
-        flash("Not enough stock!", "error"); return redirect(url_for("index"))
+        flash("Not enough stock!", "error")
+        return redirect(url_for("index"))
 
+    # profit uses *unit* sell_price as stored in DB; revenue is qty*sell_price in queries
     profit = (sell_price - buy_price) * qty
-    db.db_exec("INSERT INTO sales (item_id, qty, sell_price, profit) VALUES (:id, :q, :sp, :pf)",
-               {"id": item_id, "q": qty, "sp": sell_price, "pf": profit})
+
+    # 1) record sale WITH TIMESTAMP
+    db.db_exec("""
+        INSERT INTO sales (item_id, qty, sell_price, profit, sold_at)
+        VALUES (:id, :q, :sp, :pf, CURRENT_TIMESTAMP)
+    """, {"id": item_id, "q": qty, "sp": sell_price, "pf": profit})
+
+    # 2) reduce stock
     db.db_exec("UPDATE inventory SET quantity = quantity - :q WHERE id = :id",
                {"q": qty, "id": item_id})
 
     flash(f"Sold {qty} unit(s). Profit: {fmt_money(profit)}", "success")
+    return redirect(url_for("index"))
+
+
+
+# ↩️ Return a sale: restock inventory + remove sale
+@app.post("/sales/<int:sale_id>/return")
+def return_sale(sale_id):
+    if not is_logged_in():
+        return redirect(url_for("login"))
+
+    try:
+        sale = db.db_one("SELECT id, item_id, qty FROM sales WHERE id=:id", {"id": sale_id})
+        if not sale:
+            flash("Sale not found.", "error")
+            return redirect(url_for("index"))
+
+        qty = int(sale[2] or 0)
+        if qty <= 0:
+            db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
+            flash("Sale record removed (no quantity to return).", "warning")
+            return redirect(url_for("index"))
+
+        inv = db.db_one("SELECT id FROM inventory WHERE id=:id", {"id": sale[1]})
+        if not inv:
+            flash("Linked inventory item not found — sale not returned.", "error")
+            return redirect(url_for("index"))
+
+        db.db_exec("UPDATE inventory SET quantity = quantity + :q WHERE id = :id",
+                   {"q": qty, "id": sale[1]})
+        db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
+
+        flash("Item returned to inventory and removed from today's sales.", "success")
+    except Exception as e:
+        flash(f"Return failed: {e}", "error")
+
+    return redirect(url_for("index"))
+
+
+# 🗑️ Delete a sale record (no restock)
+@app.post("/sales/<int:sale_id>/delete")
+def delete_sale(sale_id):
+    if not is_logged_in():
+        return redirect(url_for("login"))
+    db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
+    flash("Sale record deleted.", "success")
     return redirect(url_for("index"))
 
 
@@ -513,26 +647,6 @@ def delete_item(item_id):
     db.db_exec("DELETE FROM inventory WHERE id = :id", {"id": item_id})
     flash("Item deleted successfully!", "warning")
     return redirect(url_for("index"))
-
-
-# 🔐 Login/Logout
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form["username"].strip()
-        password = request.form["password"]
-        if ADMIN_USERS.get(username) == password:
-            session["logged_in"] = True
-            session["user"] = username
-            return redirect(url_for("index"))
-        return render_template("login.html", error="Invalid credentials")
-    return render_template("login.html")
-
-@app.get("/logout")
-def logout():
-    session.pop("logged_in", None)
-    session.pop("user", None)
-    return redirect(url_for("login"))
 
 
 # ✏️ Edit Item
@@ -589,7 +703,7 @@ def edit_item(item_id):
     return render_template("edit.html", item=item)
 
 
-# 📤 Export to Excel (dual currency: UZS + UI currency)
+# 📊 Export to Excel (dual currency: UZS + UI currency)
 @app.get("/export")
 def export_excel():
     if not is_logged_in():
@@ -606,7 +720,7 @@ def export_excel():
     sh.title = "Inventory"
 
     sh["A1"] = "Vanta Inventory Export"
-    sh["A2"] = f"Generated at: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    sh["A2"] = f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     sh["A3"] = f"Stored currency (DB): {base_ccy}"
     sh["A4"] = f"UI currency: {ui_curr}"
     start_row = 6
@@ -679,13 +793,11 @@ def export_excel():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
-# 📦 Data backup (ZIP of CSVs) — import psycopg2 lazily so Windows dev can skip it
+# 📦 Data backup (ZIP of CSVs)
 @app.get("/admin/backup")
 def admin_backup():
     if not (is_logged_in() and is_admin_user()):
         return redirect(url_for("login"))
-    # ... rest of function stays the same ...
-
 
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
@@ -717,7 +829,7 @@ def admin_backup():
         """)
         tables = [r[0] for r in cur.fetchall()]
 
-    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+    ts = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         meta = {
@@ -776,6 +888,28 @@ def set_currency():
     session["CURR"] = cur
     flash(f"Currency set to {cur}.", "success")
     return redirect(url_for("index"))
+
+
+# =========================
+# Auth routes
+# =========================
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        if ADMIN_USERS.get(username) == password:
+            session["logged_in"] = True
+            session["user"] = username
+            return redirect(url_for("index"))
+        return render_template("login.html", error="Invalid credentials")
+    return render_template("login.html")
+
+@app.get("/logout")
+def logout():
+    session.pop("logged_in", None)
+    session.pop("user", None)
+    return redirect(url_for("login"))
 
 
 # =========================

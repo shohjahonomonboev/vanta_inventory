@@ -24,9 +24,9 @@
 <!-- Sell Item -->
 <h2>{{ t("sell_item") }}</h2>
 <form action="{{ url_for('sell_item') }}" method="POST" class="form-row card">
-  <select name="item_id" required id="sell-item-select">
+  <select name="item_id" required id="sell-item-select" aria-label="{{ t('item') }}">
     {% for item in inventory %}
-      {# item: (id, name, buying_price, selling_price, quantity, profit, currency) #}
+      {# item: (id, name, buy, sell, qty, profit, currency) #}
       <option value="{{ item[0] }}">
         {{ item[1] }} — {{ t('stock') }}: {{ item[4] }} — {{ t('sell') }}: {{ (item[3] | ccy) | fmtmoney }}
       </option>
@@ -61,7 +61,8 @@
 <!-- Add Item -->
 <h2 class="add-item-title">{{ t("add_item") }}</h2>
 <p class="hint">
-  Prices you enter are in <strong>{{ CURRENCY }}</strong>, stored internally in <strong>UZS</strong>.
+  {{ t("prices_in_ui_currency") if t("prices_in_ui_currency") else "Prices you enter are in" }}
+  <strong>{{ CURRENCY }}</strong>, stored internally in <strong>UZS</strong>.
 </p>
 
 <form action="{{ url_for('add_item') }}" method="POST" class="form-row card">
@@ -72,30 +73,13 @@
   <button type="submit">{{ t('add') }}</button>
 </form>
 
-
-
-<!-- Filters (no extra hint text) -->
-<h2 class="filters-title">{{ t("filters") }}</h2>
-
-<form method="GET" action="{{ url_for('index') }}" class="form-row card">
-  <input type="text" name="search" placeholder="{{ t('search_item') }}..." value="{{ search_query }}">
-  <select name="filter">
-    <option value="">{{ t('filter') }} — </option>
-    <option value="low_stock"  {% if selected_filter == 'low_stock'  %}selected{% endif %}>{{ t('low_stock') }} (≤ 5)</option>
-    <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>{{ t('high_profit') }}</option>
-  </select>
-  <button type="submit">{{ t('apply') }}</button>
-</form>
-
-
-
 <!-- Language & Currency Panel -->
 <div class="prefs-card">
   <h3 class="prefs-title">{{ t("lang_curr") }}</h3>
 
   <!-- Language form -->
   <form method="POST" action="{{ url_for('set_prefs') }}" class="prefs-form" id="lang-form">
-    <label>{{ t("language") }}</label>
+    <label for="lang-select">{{ t("language") }}</label>
     <select name="lang" id="lang-select">
       <option value="en" {{ 'selected' if USER_LANG=='en' else '' }}>English</option>
       <option value="uz" {{ 'selected' if USER_LANG=='uz' else '' }}>Uzbek</option>
@@ -107,7 +91,7 @@
 
   <!-- Currency form -->
   <form action="{{ url_for('set_currency') }}" method="POST" class="prefs-form" id="currency-form">
-    <label>{{ t("currency") }}</label>
+    <label for="currency-select">{{ t("currency") }}</label>
     <select name="currency" id="currency-select">
       <option value="USD" {{ 'selected' if CURRENCY=='USD' else '' }}>USD ($)</option>
       <option value="AED" {{ 'selected' if CURRENCY=='AED' else '' }}>AED (د.إ)</option>
@@ -119,7 +103,7 @@
     </div>
   </form>
 
-  <!-- Server-rendered live FX (no JS fetch needed) -->
+  <!-- Server-rendered live FX -->
   <small>
     1 USD = {{ usd_to_aed | round(2) }} AED | {{ usd_to_uzs | round(0) }} UZS | 1.00 USD
   </small>
@@ -140,40 +124,163 @@
   });
 </script>
 
+<!-- Filters -->
+<h2 class="filters-title">{{ t("filters") }}</h2>
+
+<form method="GET" action="{{ url_for('index') }}" class="form-row card">
+  <input type="text" name="search" placeholder="{{ t('search_item') }}..." value="{{ search_query }}">
+  <select name="filter">
+    <option value="">{{ t('filter') }} — </option>
+    <option value="low_stock"  {% if selected_filter == 'low_stock'  %}selected{% endif %}>{{ t('low_stock') }} (≤ 5)</option>
+    <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>{{ t('high_profit') }}</option>
+  </select>
+  <!-- preserve current sort -->
+  <input type="hidden" name="sort" value="{{ request.args.get('sort','') }}">
+  <button type="submit">{{ t('apply') }}</button>
+</form>
+
 <!-- Inventory Table -->
 <h2>{{ t("inventory") }}</h2>
+
 <div class="table-wrap">
-<table>
-  <thead>
-    <tr>
-      <th>#</th>
-      <th>{{ t("item") }}</th>
-      <th>{{ t("quantity") }}</th>
-      <th>Sotib olish ({{ CURRENCY }})</th>
-      <th>Sotish ({{ CURRENCY }})</th>
-      <th>Foyda ({{ CURRENCY }})</th>
-      <th>{{ t("action") }}</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for item in inventory %}
-      {% set row_profit = (item[3] - item[2]) * item[4] %}
+  {% set q = request.args.get('search','') %}
+  {% set f = request.args.get('filter','') %}
+
+  <div class="toolbar">
+    <button id="filterBtn" class="btn" aria-expanded="false" aria-haspopup="true" aria-controls="filterMenu">
+      Filter / Sort
+    </button>
+    <div id="filterMenu" class="menu hidden" role="menu" aria-label="Inventory sort menu">
+      <a class="menu-item" href="{{ url_for('index', sort='name_asc',  search=q, filter=f) }}">A → Z (Name)</a>
+      <a class="menu-item" href="{{ url_for('index', sort='name_desc', search=q, filter=f) }}">Z → A (Name)</a>
+      <hr class="menu-sep">
+      <a class="menu-item" href="{{ url_for('index', sort='qty_desc',  search=q, filter=f) }}">Quantity: High → Low</a>
+      <a class="menu-item" href="{{ url_for('index', sort='qty_asc',   search=q, filter=f) }}">Quantity: Low → High</a>
+      <hr class="menu-sep">
+      <a class="menu-item" href="{{ url_for('index', sort='price_desc', search=q, filter=f) }}">Price: High → Low</a>
+      <a class="menu-item" href="{{ url_for('index', sort='price_asc',  search=q, filter=f) }}">Price: Low → High</a>
+      <hr class="menu-sep">
+      <a class="menu-item" href="{{ url_for('index', search=q, filter=f) }}">Reset sort</a>
+    </div>
+  </div>
+
+  <style>
+    .toolbar { position: relative; display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+    .menu.hidden { display:none; }
+    #filterMenu { position:absolute; top:100%; left:0; margin-top:6px; z-index:5; padding:8px;
+      border:1px solid #e5e7eb; border-radius:10px; background:#fff; box-shadow:0 8px 24px rgba(0,0,0,0.08); }
+    #filterMenu .menu-item { display:block; padding:8px 12px; text-decoration:none; color:inherit; }
+    #filterMenu .menu-item:hover { background:#f3f4f6; }
+    #filterMenu .menu-sep { margin:6px 0; border:none; border-top:1px solid #eee; }
+  </style>
+
+  <script>
+    (function(){
+      const btn  = document.getElementById('filterBtn');
+      const menu = document.getElementById('filterMenu');
+      if (!btn || !menu) return;
+
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const hidden = menu.classList.toggle('hidden');
+        btn.setAttribute('aria-expanded', String(!hidden));
+      });
+
+      document.addEventListener('click', (e)=>{
+        if (!menu.contains(e.target) && e.target !== btn) {
+          if (!menu.classList.contains('hidden')) {
+            menu.classList.add('hidden');
+            btn.setAttribute('aria-expanded', 'false');
+          }
+        }
+      });
+
+      document.addEventListener('keydown', (e)=>{
+        if (e.key === 'Escape' && !menu.classList.contains('hidden')) {
+          menu.classList.add('hidden');
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      });
+
+      // Bold the active sort link
+      const active = new URLSearchParams(location.search).get('sort') || '';
+      document.querySelectorAll('#filterMenu .menu-item').forEach(a=>{
+        if (active && a.href.includes(`sort=${active}`)) a.style.fontWeight = '700';
+      });
+    })();
+  </script>
+
+  <table id="inventoryTable" class="table">
+    <thead>
       <tr>
-        <td>{{ loop.index }}</td>
-        <td>{{ item[1] }}</td>
-        <td>{{ item[4] }}</td>
-        <td data-label="Sotib olish ({{ CURRENCY }})">{{ item[2] | ccy | fmtmoney }}</td>
-        <td data-label="Sotish ({{ CURRENCY }})">{{ item[3] | ccy | fmtmoney }}</td>
-        <td data-label="Foyda ({{ CURRENCY }})">{{ row_profit | ccy | fmtmoney }}</td>
-        <td class="actions">
-          <a href="{{ url_for('edit_item', item_id=item[0]) }}">✏️</a>
-          <a href="{{ url_for('delete_item', item_id=item[0]) }}">❌</a>
-        </td>
+        <th>#</th>
+        <th>{{ t("item") }}</th>
+        <th>{{ t("quantity") }}</th>
+        <th>{{ t("buy") }} ({{ CURRENCY }})</th>
+        <th>{{ t("sell") }} ({{ CURRENCY }})</th>
+        <th>{{ t("profit") }} ({{ CURRENCY }})</th>
+        <th>{{ t("action") }}</th>
       </tr>
-    {% endfor %}
-  </tbody>
-</table>
+    </thead>
+    <tbody>
+      {% for it in inventory %}
+        {% set row_profit = (it[3] - it[2]) * (it[4] or 0) %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td data-col="name">{{ it[1] }}</td>
+          <td data-col="qty">{{ it[4] }}</td>
+          <td data-label="{{ t('buy') }} ({{ CURRENCY }})">{{ it[2] | ccy | fmtmoney }}</td>
+          <td data-col="price" data-label="{{ t('sell') }} ({{ CURRENCY }})">{{ it[3] | ccy | fmtmoney }}</td>
+          <td data-label="{{ t('profit') }} ({{ CURRENCY }})">{{ row_profit | ccy | fmtmoney }}</td>
+          <td class="actions">
+            <a href="{{ url_for('edit_item', item_id=it[0]) }}">✏️</a>
+            <a href="{{ url_for('delete_item', item_id=it[0]) }}" onclick="return confirm('Delete item?')">❌</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
+
+<h2 class="mt-6">Sold Items</h2>
+<p class="subtitle">Return puts the quantity back into Inventory and removes this sale from today.</p>
+
+<div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>{{ t("item") }}</th>
+        <th>{{ t("qty") }}</th>
+        <th>{{ t("sell") }} ({{ CURRENCY }})</th>
+        <th>{{ t("profit") }} ({{ CURRENCY }})</th>
+        <th>{{ t("action") }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sales_today %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td>{{ s[2] }}</td>
+          <td>{{ s[3] }}</td>
+          <td>{{ s[4] | ccy | fmtmoney }}</td>
+          <td>{{ s[5] | ccy | fmtmoney }}</td>
+          <td class="actions">
+            <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
+              <button class="btn btn-icon" title="Return">↩</button>
+            </form>
+            <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline" onsubmit="return confirm('Delete sale record?')">
+              <button class="btn btn-icon">🗑</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" style="text-align:center; opacity:.7">No sales yet today.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
 
 <!-- Insights -->
 <h2>{{ t("insights") }}</h2>
@@ -265,22 +372,18 @@
   document.addEventListener('vanta-theme-change', buildCharts);
 </script>
 
-
 <!-- Live input money formatter -->
 <script>
 (function () {
   const inputs = document.querySelectorAll("[data-money]");
-
   function formatMoney(raw) {
     const digits = String(raw || "").replace(/[^\d]/g, "");
     if (!digits) return "";
     return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   }
   function unformatMoney(s) { return String(s || "").replace(/,/g, ""); }
-
   inputs.forEach(inp => {
     if (inp.value) inp.value = formatMoney(inp.value);
-
     inp.addEventListener("input", () => {
       const start = inp.selectionStart || 0;
       const before = inp.value;
@@ -289,13 +392,9 @@
       const pos = Math.max(0, start + diff);
       try { inp.setSelectionRange(pos, pos); } catch(e) {}
     });
-
     inp.addEventListener("blur", () => { inp.value = formatMoney(inp.value); });
-
     if (inp.form) {
-      inp.form.addEventListener("submit", () => {
-        inp.value = unformatMoney(inp.value);
-      });
+      inp.form.addEventListener("submit", () => { inp.value = unformatMoney(inp.value); });
     }
   });
 })();
@@ -304,7 +403,7 @@
 <!-- Export & Backup -->
 <h2 class="export-title">{{ t("export_backup") }}</h2>
 <p class="hint">
-  <strong>Export Excel</strong> downloads your current inventory. 
+  <strong>Export Excel</strong> downloads your current inventory.
   <strong>Backup DB</strong> creates a ZIP with CSVs of your tables.
 </p>
 
@@ -313,7 +412,4 @@
   <a href="{{ url_for('admin_backup') }}" class="btn">💾 {{ t("backup_db") }}</a>
 </div>
 
-
-
 {% endblock %}
-

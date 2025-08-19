@@ -1,0 +1,3 @@
+@app.get("/robots.txt")
+def robots_txt():
+    return "User-agent: *\nDisallow: /login\n", 200, {"Content-Type": "text/plain; charset=utf-8"}
