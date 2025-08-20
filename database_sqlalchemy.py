@@ -161,14 +161,15 @@ def ensure_schema():
     if _schema_checked:
         return
 
+    is_pg = DATABASE_URL.startswith("postgresql")
     stmts = []
 
-    # Enable foreign keys for SQLite (also enforced on each connection via event)
-    if not is_postgres():
+    # Enable foreign keys on SQLite
+    if not is_pg:
         stmts.append("PRAGMA foreign_keys = ON;")
 
-    # Base tables (create if missing). Keep types simple and portable.
-    if not is_postgres():
+    # ---- Base tables ----
+    if not is_pg:
         stmts += [
             """CREATE TABLE IF NOT EXISTS inventory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,8 +179,7 @@ def ensure_schema():
                 quantity INTEGER NOT NULL DEFAULT 0,
                 profit REAL NOT NULL DEFAULT 0,
                 currency TEXT DEFAULT 'UZS',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );""",
             """CREATE TABLE IF NOT EXISTS sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,6 +195,17 @@ def ensure_schema():
                 symbol TEXT,
                 rate REAL
             );""",
+            # >>> NEW: movement ledger (SQLite)
+            """CREATE TABLE IF NOT EXISTS stock_movements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL,
+                action TEXT NOT NULL CHECK (action IN ('add','sell','return','edit','delete')),
+                qty_delta INTEGER NOT NULL,
+                price REAL,
+                note TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (item_id) REFERENCES inventory(id) ON DELETE CASCADE
+            );""",
         ]
     else:
         stmts += [
@@ -206,8 +217,7 @@ def ensure_schema():
                 quantity INTEGER NOT NULL DEFAULT 0,
                 profit NUMERIC(14,2) NOT NULL DEFAULT 0,
                 currency TEXT DEFAULT 'UZS',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );""",
             """CREATE TABLE IF NOT EXISTS sales (
                 id SERIAL PRIMARY KEY,
@@ -222,26 +232,45 @@ def ensure_schema():
                 symbol TEXT,
                 rate NUMERIC(14,6)
             );""",
+            # >>> NEW: movement ledger (Postgres)
+            """CREATE TABLE IF NOT EXISTS stock_movements (
+                id SERIAL PRIMARY KEY,
+                item_id INTEGER NOT NULL REFERENCES inventory(id) ON DELETE CASCADE,
+                action TEXT NOT NULL CHECK (action IN ('add','sell','return','edit','delete')),
+                qty_delta INTEGER NOT NULL,
+                price NUMERIC(14,2),
+                note TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );""",
         ]
 
+    # ---- Apply schema + rolling upgrades ----
     with engine.begin() as conn:
-        # 1) Create base objects
+        # 1) Create base tables
         for s in stmts:
             conn.exec_driver_sql(s)
 
-        # 2) Rolling column upgrades (add if missing)
+        # 2) Rolling column upgrades on inventory
         _ensure_column(conn, "inventory", "category",   "TEXT")
         _ensure_column(conn, "inventory", "created_at", "TIMESTAMP")
         _ensure_column(conn, "inventory", "updated_at", "TIMESTAMP")
 
-        # 3) Backfill timestamps (idempotent)
-        conn.exec_driver_sql("UPDATE inventory SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
-        conn.exec_driver_sql("UPDATE inventory SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+        # 3) Backfill timestamps once (idempotent)
+        conn.exec_driver_sql(
+            "UPDATE inventory SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"
+        )
+        conn.exec_driver_sql(
+            "UPDATE inventory SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"
+        )
 
-        # 4) On Postgres, ensure defaults for future inserts
-        if is_postgres():
-            conn.exec_driver_sql("ALTER TABLE inventory ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP")
-            conn.exec_driver_sql("ALTER TABLE inventory ALTER COLUMN updated_at SET DEFAULT CURRENT_TIMESTAMP")
+        # 4) PG defaults
+        if is_pg:
+            conn.exec_driver_sql(
+                "ALTER TABLE inventory ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP"
+            )
+            conn.exec_driver_sql(
+                "ALTER TABLE inventory ALTER COLUMN updated_at SET DEFAULT CURRENT_TIMESTAMP"
+            )
 
         # 5) Drop legacy non-unique index (ignore errors)
         try:
@@ -249,19 +278,24 @@ def ensure_schema():
         except Exception:
             pass
 
-        # 6) Deduplicate names prior to unique index
+        # 6) Deduplicate names before unique index
         deduped = _dedupe_inventory_names(conn)
         if deduped:
             print(f"Schema: deduped {deduped} duplicate inventory name(s).")
 
-        # 7) Indices
+        # 7) Indices (idempotent)
         _ensure_index(conn, "idx_inventory_name_unique", "inventory", "name", unique=True)
         _ensure_index(conn, "idx_inventory_cat",  "inventory", "category")
         _ensure_index(conn, "idx_inventory_qty",  "inventory", "quantity")
         _ensure_index(conn, "idx_sales_item",     "sales",     "item_id")
         _ensure_index(conn, "idx_sales_date",     "sales",     "sold_at")
+        # >>> NEW: movement indexes
+        _ensure_index(conn, "idx_movements_item",    "stock_movements", "item_id")
+        _ensure_index(conn, "idx_movements_action",  "stock_movements", "action")
+        _ensure_index(conn, "idx_movements_created", "stock_movements", "created_at")
 
     _schema_checked = True
+
 
 # --- DB helpers --------------------------------------------------------------
 def db_all(sql, params=None):

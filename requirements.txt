@@ -1,24 +1,8 @@
-
----
-
-# requirements.txt (final)
-
-```txt
-Flask==3.0.3
-Jinja2==3.1.4
-Werkzeug==3.0.3
-itsdangerous==2.2.0
-click==8.1.7
-
+﻿Flask==3.0.3
 SQLAlchemy==2.0.32
-psycopg2-binary==2.9.9
-
 requests==2.32.3
 Babel==2.15.0
-
 openpyxl==3.1.5
-
-# Servers
-gunicorn==22.0.0     # Linux/server deploy (Render)
-waitress==3.0.0      # Windows local
-
+psycopg2-binary==2.9.9
+waitress==3.0.0
+gunicorn==21.2.0 ; platform_system != "Windows"

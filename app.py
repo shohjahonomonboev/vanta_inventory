@@ -42,6 +42,15 @@ from i18n import t  # your translation helper
 OFFLINE = os.getenv("OFFLINE", "0").lower() in ("1", "true", "yes")
 
 
+from datetime import datetime, date, timedelta  # already imported date; keep timedelta too
+
+def _parse_date(s):
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
 # =========================
 # App bootstrap + logging
 # =========================
@@ -359,14 +368,19 @@ def index():
     if not is_logged_in():
         return redirect(url_for("login"))
 
-    # ----- params -----
+    # ----- query params -----
     search_query    = (request.values.get("search", "") or "").strip().lower()
     selected_filter = request.values.get("filter", "")
     sort_by         = request.args.get("sort_by", "id")
     direction       = request.args.get("direction", "asc")
+    sort_param      = request.args.get("sort")
 
-    # support ?sort=name_asc|name_desc|qty_asc|qty_desc|price_asc|price_desc
-    sort_param = request.args.get("sort")
+    # optional date window (?from=YYYY-MM-DD&to=YYYY-MM-DD)
+    start_str = (request.args.get("from") or "").strip()
+    end_str   = (request.args.get("to")   or "").strip()
+    use_window = bool(start_str and end_str)
+
+    # map short sort tokens
     if sort_param:
         mapping = {
             "name_asc":  ("name", "asc"),
@@ -378,31 +392,64 @@ def index():
         }
         sort_by, direction = mapping.get(sort_param, (sort_by, direction))
 
-       # ----- data -----
-    inventory = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
+    # ----- data -----
+    inventory    = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
     using_sqlite = db.DATABASE_URL.startswith("sqlite")
 
-    # --- Today revenue/profit ---
+    # ---- KPIs: revenue/profit for window or today ----
     if using_sqlite:
-        row = db.db_one("""
-            SELECT
-              COALESCE(SUM(qty * sell_price), 0),
-              COALESCE(SUM(profit), 0)
-            FROM sales
-            WHERE DATE(sold_at, 'localtime') = DATE('now','localtime')
-        """)
+        if use_window:
+            row = db.db_one(
+                """
+                SELECT
+                  COALESCE(SUM(qty * sell_price), 0),
+                  COALESCE(SUM(profit), 0)
+                FROM sales
+                WHERE sold_at >= :start
+                  AND sold_at <  DATETIME(:end,'+1 day')
+                """,
+                {"start": f"{start_str} 00:00:00", "end": f"{end_str} 00:00:00"},
+            )
+        else:
+            row = db.db_one(
+                """
+                SELECT
+                  COALESCE(SUM(qty * sell_price), 0),
+                  COALESCE(SUM(profit), 0)
+                FROM sales
+                WHERE sold_at >= DATETIME('now','start of day')
+                  AND sold_at <  DATETIME('now','start of day','+1 day')
+                """
+            )
     else:
-        row = db.db_one("""
-            SELECT
-              COALESCE(SUM(qty * sell_price), 0),
-              COALESCE(SUM(profit), 0)
-            FROM sales s
-            WHERE DATE(s.sold_at) = CURRENT_DATE
-        """)
+        if use_window:
+            row = db.db_one(
+                """
+                SELECT
+                  COALESCE(SUM(qty * sell_price), 0),
+                  COALESCE(SUM(profit), 0)
+                FROM sales s
+                WHERE s.sold_at >= DATE(:start)
+                  AND s.sold_at <  DATE(:end) + INTERVAL '1 day'
+                """,
+                {"start": start_str, "end": end_str},
+            )
+        else:
+            row = db.db_one(
+                """
+                SELECT
+                  COALESCE(SUM(qty * sell_price), 0),
+                  COALESCE(SUM(profit), 0)
+                FROM sales s
+                WHERE s.sold_at >= CURRENT_DATE
+                  AND s.sold_at <  CURRENT_DATE + INTERVAL '1 day'
+                """
+            )
+
     today_revenue = row[0] if row else 0
     today_profit  = row[1] if row else 0
 
-    # Filtering
+    # ---- Filtering ----
     if search_query:
         inventory = [it for it in inventory if search_query in (it[1] or "").lower()]
     if selected_filter == "low_stock":
@@ -410,7 +457,7 @@ def index():
     elif selected_filter == "high_profit":
         inventory = [it for it in inventory if (it[5] or 0) >= 100]
 
-    # Sorting
+    # ---- Sorting (in-memory) ----
     sort_map = {"name": 1, "quantity": 4, "profit": 5, "price": 3}
     if sort_by in sort_map:
         idx = sort_map[sort_by]
@@ -420,19 +467,20 @@ def index():
             reverse=(direction == "desc"),
         )
 
-    # Totals
+    # ---- Totals ----
     def nz_dec(x): return x if x is not None else Decimal(0)
     def nz_int(x): return x if x is not None else 0
     total_quantity = sum(nz_int(it[4]) for it in inventory)
     total_profit   = sum(nz_dec(it[5]) for it in inventory)
 
-    # Top/Low lists
+    # ---- Top/Low lists ----
     top_profit_items = sorted(inventory, key=lambda x: (x[5] is None, x[5]), reverse=True)[:5]
     low_stock_items  = sorted(inventory, key=lambda x: (x[4] is None, x[4]))[:5]
 
-    # --- Last 7 days revenue ---
+    # ---- Last 7 days revenue (chart) ----
     if using_sqlite:
-        rows = db.db_all("""
+        rows = db.db_all(
+            """
             WITH days AS (
               SELECT DATE('now','localtime','-6 day') AS d
               UNION ALL SELECT DATE('now','localtime','-5 day')
@@ -443,103 +491,114 @@ def index():
               UNION ALL SELECT DATE('now','localtime')
             )
             SELECT d AS day,
-                   COALESCE((
-                     SELECT SUM(qty*sell_price)
-                     FROM sales s
-                     WHERE DATE(s.sold_at,'localtime') = d
-                   ),0) AS revenue
+                   COALESCE((SELECT SUM(qty*sell_price)
+                             FROM sales s
+                             WHERE DATE(s.sold_at)=d),0) AS revenue
             FROM days
-            ORDER BY d
-        """)
+            """
+        )
     else:
-        rows = db.db_all("""
+        rows = db.db_all(
+            """
             WITH days AS (
-              SELECT generate_series(current_date - interval '6 day',
-                                     current_date,
-                                     interval '1 day')::date AS d
+              SELECT generate_series(current_date - interval '6 day', current_date, interval '1 day')::date AS d
             )
             SELECT d AS day,
-                   COALESCE((
-                     SELECT SUM(qty*sell_price)
-                     FROM sales s
-                     WHERE DATE(s.sold_at) = d
-                   ),0) AS revenue
+                   COALESCE((SELECT SUM(qty*sell_price) FROM sales s WHERE DATE(s.sold_at)=d),0) AS revenue
             FROM days
             ORDER BY d
-        """)
+            """
+        )
 
     sales_labels = [str(r[0]) for r in rows]
     sales_values = [float(r[1] or 0) for r in rows]
 
-    # Stock tracker arrays (optional legacy)
+    # ---- Stock tracker (legacy arrays) ----
     stock_labels = [it[1] for it in inventory]
     stock_values = [nz_int(it[4]) for it in inventory]
 
-    # --- Sold Items — Today (JOIN for item name) ---
+    # ---- Sold list for the current window (or today) ----
     if using_sqlite:
-        sales_today = db.db_all("""
-            SELECT s.id,
-                   s.item_id,
-                   i.name,
-                   s.qty        AS quantity,
-                   s.sell_price AS sell_price,
-                   s.profit     AS profit,
-                   s.sold_at    AS sold_at
-            FROM sales s
-            JOIN inventory i ON i.id = s.item_id
-            WHERE DATE(s.sold_at,'localtime') = DATE('now','localtime')
-            ORDER BY s.sold_at DESC
-        """)
+        if use_window:
+            sales_today = db.db_all(
+                """
+                SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
+                FROM sales s
+                JOIN inventory i ON i.id = s.item_id
+                WHERE s.sold_at >= :start
+                  AND s.sold_at <  DATETIME(:end,'+1 day')
+                ORDER BY s.sold_at DESC
+                """,
+                {"start": f"{start_str} 00:00:00", "end": f"{end_str} 00:00:00"},
+            )
+        else:
+            sales_today = db.db_all(
+                """
+                SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
+                FROM sales s
+                JOIN inventory i ON i.id = s.item_id
+                WHERE s.sold_at >= DATETIME('now','start of day')
+                  AND s.sold_at <  DATETIME('now','start of day','+1 day')
+                ORDER BY s.sold_at DESC
+                """
+            )
     else:
-        sales_today = db.db_all("""
-            SELECT s.id,
-                   s.item_id,
-                   i.name,
-                   s.qty        AS quantity,
-                   s.sell_price AS sell_price,
-                   s.profit     AS profit,
-                   s.sold_at    AS sold_at
-            FROM sales s
-            JOIN inventory i ON i.id = s.item_id
-            WHERE DATE(s.sold_at) = CURRENT_DATE
-            ORDER BY s.sold_at DESC
-        """)
+        if use_window:
+            sales_today = db.db_all(
+                """
+                SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
+                FROM sales s
+                JOIN inventory i ON i.id = s.item_id
+                WHERE s.sold_at >= DATE(:start)
+                  AND s.sold_at <  DATE(:end) + INTERVAL '1 day'
+                ORDER BY s.sold_at DESC
+                """,
+                {"start": start_str, "end": end_str},
+            )
+        else:
+            sales_today = db.db_all(
+                """
+                SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
+                FROM sales s
+                JOIN inventory i ON i.id = s.item_id
+                WHERE s.sold_at >= CURRENT_DATE
+                  AND s.sold_at <  CURRENT_DATE + INTERVAL '1 day'
+                ORDER BY s.sold_at DESC
+                """
+            )
 
-    # FX for footer
+    # ---- FX footer ----
     _base, _rates = _derive_rates_from_usd("USD")
     usd_to_aed = _rates.get("AED", 0)
     usd_to_uzs = _rates.get("UZS", 0)
 
+    # ---- Render ----
     return render_template(
         "index.html",
+        selected_from=start_str,
+        selected_to=end_str,
         inventory=inventory,
-        # state
         search_query=search_query,
         sort_by=sort_by,
         direction=direction,
         selected_filter=selected_filter,
-        # totals
         total_quantity=total_quantity,
         total_profit=total_profit,
-        # top/low
         top_profit_labels=[it[1] for it in top_profit_items],
         top_profit_values=[float(nz_dec(it[5])) for it in top_profit_items],
         low_stock_labels=[it[1] for it in low_stock_items],
         low_stock_values=[nz_int(it[4]) for it in low_stock_items],
-        # charts
         sales_labels=sales_labels,
         sales_values=sales_values,
         stock_labels=stock_labels,
         stock_values=stock_values,
-        # sales today table
         sales_today=sales_today,
-        # kpis
         today_revenue=today_revenue,
         today_profit=today_profit,
-        # fx
         usd_to_aed=usd_to_aed,
         usd_to_uzs=usd_to_uzs,
     )
+
 
 
 
@@ -610,7 +669,6 @@ def sell_item():
         flash("Invalid item or quantity.", "error")
         return redirect(url_for("index"))
 
-    # price (UI) → DB currency
     raw_price = request.form.get("sell_price") or request.form.get("price") or request.form.get("sell")
     sell_price_ui = parse_money(raw_price)
     sell_price    = convert_amount(sell_price_ui, from_curr=get_curr(), to_curr=BASE_CCY)
@@ -630,13 +688,18 @@ def sell_item():
 
     profit = (sell_price - buy_price) * qty
 
-    # record sale + reduce stock
-    db.db_exec("""
+    # record sale + reduce stock (timestamp = now)
+    db.db_exec(
+        """
         INSERT INTO sales (item_id, qty, sell_price, profit, sold_at)
         VALUES (:id, :q, :sp, :pf, CURRENT_TIMESTAMP)
-    """, {"id": item_id, "q": qty, "sp": sell_price, "pf": profit})
-    db.db_exec("UPDATE inventory SET quantity = quantity - :q WHERE id = :id",
-               {"q": qty, "id": item_id})
+        """,
+        {"id": item_id, "q": qty, "sp": sell_price, "pf": profit},
+    )
+    db.db_exec(
+        "UPDATE inventory SET quantity = quantity - :q WHERE id = :id",
+        {"q": qty, "id": item_id},
+    )
 
     flash(f"Sold {qty} unit(s). Profit: {fmt_money(profit)}", "success")
     return redirect(url_for("index"))

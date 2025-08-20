@@ -9,6 +9,7 @@
 <h1>{{ t("app_name") }}</h1>
 <p class="subtitle">{{ t("welcome_back") }}</p>
 
+
 <!-- KPIs -->
 <div class="kpis">
   <div class="kpi kpi-green">
@@ -20,6 +21,21 @@
     {{ today_profit | ccy | fmtmoney }}
   </div>
 </div>
+
+<form method="GET" action="{{ url_for('index') }}" class="form-row card" style="padding:12px; gap:8px; align-items:center;">
+  <label>From
+    <input type="date" name="from" value="{{ selected_from }}">
+  </label>
+  <label>To
+    <input type="date" name="to" value="{{ selected_to }}">
+  </label>
+  <!-- preserve search/filter/sort -->
+  <input type="hidden" name="search" value="{{ search_query }}">
+  <input type="hidden" name="filter" value="{{ selected_filter }}">
+  <input type="hidden" name="sort"   value="{{ request.args.get('sort','') }}">
+  <button type="submit">Apply Date</button>
+  <a class="btn btn-outline" href="{{ url_for('index') }}">Reset</a>
+</form>
 
 <!-- Sell Item -->
 <h2>{{ t("sell_item") }}</h2>
@@ -247,7 +263,7 @@
 </div>
 
 <!-- Sold Items (today) -->
-<h2 class="mt-6">Sold Items</h2>
+<h2 class="mt-6">Sold Items ({{ selected_from }} → {{ selected_to }})</h2>
 <p class="subtitle">Return puts the quantity back into Inventory and removes this sale from today.</p>
 
 <div class="table-wrap">
