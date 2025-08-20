@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}{{ t("app_name") }}{% endblock %}
 {% block content %}
 
@@ -28,7 +28,7 @@
     {% for item in inventory %}
       {# item: (id, name, buy, sell, qty, profit, currency) #}
       <option value="{{ item[0] }}">
-        {{ item[1] }} — {{ t('stock') }}: {{ item[4] }} — {{ t('sell') }}: {{ (item[3] | ccy) | fmtmoney }}
+        {{ item[1] }} â€” {{ t('stock') }}: {{ item[4] }} â€” {{ t('sell') }}: {{ (item[3] | ccy) | fmtmoney }}
       </option>
     {% endfor %}
   </select>
@@ -94,7 +94,7 @@
     <label for="currency-select">{{ t("currency") }}</label>
     <select name="currency" id="currency-select">
       <option value="USD" {{ 'selected' if CURRENCY=='USD' else '' }}>USD ($)</option>
-      <option value="AED" {{ 'selected' if CURRENCY=='AED' else '' }}>AED (د.إ)</option>
+      <option value="AED" {{ 'selected' if CURRENCY=='AED' else '' }}>AED (Ø¯.Ø¥)</option>
       <option value="UZS" {{ 'selected' if CURRENCY=='UZS' else '' }}>UZS (so'm)</option>
     </select>
     <div class="prefs-actions">
@@ -130,8 +130,8 @@
 <form method="GET" action="{{ url_for('index') }}" class="form-row card">
   <input type="text" name="search" placeholder="{{ t('search_item') }}..." value="{{ search_query }}">
   <select name="filter">
-    <option value="">{{ t('filter') }} — </option>
-    <option value="low_stock"  {% if selected_filter == 'low_stock'  %}selected{% endif %}>{{ t('low_stock') }} (≤ 5)</option>
+    <option value="">{{ t('filter') }} â€” </option>
+    <option value="low_stock"  {% if selected_filter == 'low_stock'  %}selected{% endif %}>{{ t('low_stock') }} (â‰¤ 5)</option>
     <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>{{ t('high_profit') }}</option>
   </select>
   <!-- preserve current sort -->
@@ -151,14 +151,14 @@
       Filter / Sort
     </button>
     <div id="filterMenu" class="menu hidden" role="menu" aria-label="Inventory sort menu">
-      <a class="menu-item" href="{{ url_for('index', sort='name_asc',  search=q, filter=f) }}">A → Z (Name)</a>
-      <a class="menu-item" href="{{ url_for('index', sort='name_desc', search=q, filter=f) }}">Z → A (Name)</a>
+      <a class="menu-item" href="{{ url_for('index', sort='name_asc',  search=q, filter=f) }}">A â†’ Z (Name)</a>
+      <a class="menu-item" href="{{ url_for('index', sort='name_desc', search=q, filter=f) }}">Z â†’ A (Name)</a>
       <hr class="menu-sep">
-      <a class="menu-item" href="{{ url_for('index', sort='qty_desc',  search=q, filter=f) }}">Quantity: High → Low</a>
-      <a class="menu-item" href="{{ url_for('index', sort='qty_asc',   search=q, filter=f) }}">Quantity: Low → High</a>
+      <a class="menu-item" href="{{ url_for('index', sort='qty_desc',  search=q, filter=f) }}">Quantity: High â†’ Low</a>
+      <a class="menu-item" href="{{ url_for('index', sort='qty_asc',   search=q, filter=f) }}">Quantity: Low â†’ High</a>
       <hr class="menu-sep">
-      <a class="menu-item" href="{{ url_for('index', sort='price_desc', search=q, filter=f) }}">Price: High → Low</a>
-      <a class="menu-item" href="{{ url_for('index', sort='price_asc',  search=q, filter=f) }}">Price: Low → High</a>
+      <a class="menu-item" href="{{ url_for('index', sort='price_desc', search=q, filter=f) }}">Price: High â†’ Low</a>
+      <a class="menu-item" href="{{ url_for('index', sort='price_asc',  search=q, filter=f) }}">Price: Low â†’ High</a>
       <hr class="menu-sep">
       <a class="menu-item" href="{{ url_for('index', search=q, filter=f) }}">Reset sort</a>
     </div>
@@ -233,8 +233,8 @@
           <td data-col="price" data-label="{{ t('sell') }} ({{ CURRENCY }})">{{ it[3] | ccy | fmtmoney }}</td>
           <td data-label="{{ t('profit') }} ({{ CURRENCY }})">{{ row_profit | ccy | fmtmoney }}</td>
           <td class="actions">
-            <a href="{{ url_for('edit_item', item_id=it[0]) }}">✏️</a>
-            <a href="{{ url_for('delete_item', item_id=it[0]) }}" onclick="return confirm('Delete item?')">❌</a>
+            <a href="{{ url_for('edit_item', item_id=it[0]) }}">âœï¸</a>
+            <a href="{{ url_for('delete_item', item_id=it[0]) }}" onclick="return confirm('Delete item?')">âŒ</a>
           </td>
         </tr>
       {% endfor %}
@@ -267,10 +267,10 @@
           <td>{{ s[5] | ccy | fmtmoney }}</td>
           <td class="actions">
             <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
-              <button class="btn btn-icon" title="Return">↩</button>
+              <button class="btn btn-icon" title="Return">â†©</button>
             </form>
             <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline" onsubmit="return confirm('Delete sale record?')">
-              <button class="btn btn-icon">🗑</button>
+              <button class="btn btn-icon">ðŸ—‘</button>
             </form>
           </td>
         </tr>
@@ -364,7 +364,7 @@
         label:`Daily Revenue (${currency})`, data: {{ sales_values|tojson }}, tension:.35, fill:true,
         backgroundColor: makeGradient(ctx, 'rgba(34,197,94,.20)', 'rgba(34,197,94,.05)'),
         borderColor: css('--green'), pointRadius: 2
-      }]}, options: baseOptions('Revenue — Last 7 Days') });
+      }]}, options: baseOptions('Revenue â€” Last 7 Days') });
     })();
   }
 
@@ -408,8 +408,9 @@
 </p>
 
 <div class="form-row card">
-  <a href="{{ url_for('export_excel') }}" class="btn btn-green">📊 {{ t("export_excel") }}</a>
-  <a href="{{ url_for('admin_backup') }}" class="btn">💾 {{ t("backup_db") }}</a>
+  <a href="{{ url_for('export_excel') }}" class="btn btn-green">ðŸ“Š {{ t("export_excel") }}</a>
+  <a href="{{ url_for('admin_backup') }}" class="btn">ðŸ’¾ {{ t("backup_db") }}</a>
 </div>
 
 {% endblock %}
+

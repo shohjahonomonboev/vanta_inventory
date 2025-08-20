@@ -1,0 +1,24 @@
+﻿# Python / Flask
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.env
+.venv/
+venv/
+env/
+
+# IDEs / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local data & build artifacts
+local.db
+*.sqlite*
+*.xlsx
+*.zip
+instance/
+
+# Node (if ever used)
+node_modules/
