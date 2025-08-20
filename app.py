@@ -912,6 +912,16 @@ def logout():
     return redirect(url_for("login"))
 
 
+# in app.py
+from flask import request, jsonify
+
+@app.route('/forgot', methods=['POST'])
+def forgot():
+    email = (request.json or {}).get('email', '').strip()
+    # TODO: Look up user by email and send a real reset link
+    return jsonify({"ok": True, "message": "If this email is registered, a reset link will be sent."})
+
+
 # =========================
 # Local dev entry
 # =========================

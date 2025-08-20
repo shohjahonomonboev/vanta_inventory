@@ -1,65 +1,56 @@
 <!DOCTYPE html>
-<html lang="{{ USER_LANG }}" data-theme="light">
+<html lang="{{ USER_LANG }}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
   <title>{% block title %}{{ t("app_name") }}{% endblock %}</title>
+
+  <!-- Prevent theme flash: set data-theme + prepaint background BEFORE CSS loads -->
   <script>
-    (function(){
+    (function () {
       try {
-        var t = localStorage.getItem('vanta-theme') || 'light';
-        document.documentElement.setAttribute('data-theme', t);
-      } catch(e) {}
+        var t = localStorage.getItem('vanta-theme');
+        if (!t) {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        var root = document.documentElement;
+        root.setAttribute('data-theme', t);
+        // Prepaint background to avoid flash before CSS arrives
+        root.style.backgroundColor = (t === 'dark') ? '#0b1220' : '#f6f7fb';
+      } catch (e) {}
     })();
   </script>
+
+  <!-- Fonts & CSS -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ APP_VERSION }}">
+
+  <!-- Charts -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
   {% block head %}{% endblock %}
-  <style>
-    .hint{
-      margin: 4px 0 16px; /* consistent gap under headings */
-      color: var(--muted);
-      font-size: .9rem;
-      line-height: 1.4;
-    }
-
-    @media (max-width:600px){
-      .hint{ font-size: .95rem; }
-    }
-
-    /* Ensure all headings are consistently capitalized */
-    h1, h2, h3, h4, h5, h6,
-    .add-item-title,
-    .filters-title,
-    .export-title,
-    .prefs-title { text-transform: capitalize; }
-
-    /* Add breathing room above section headings */
-    h2, .add-item-title, .filters-title, .export-title, .prefs-title {
-      margin-top: 28px;
-      margin-bottom: 6px; /* tighten before hints */
-    }
-  </style>
 </head>
 <body>
-  <header class="topbar card container">
-  <div class="brand">
-  <span class="cube">&#x1F4E6;</span>
-  <strong>{{ t("app_name") }}</strong>
-  <span class="badge badge-version" title="Current build">{{ APP_VERSION }}</span>
-</div>
+  <header class="topbar card container" role="banner">
+    <div class="brand">
+      <span class="cube" aria-hidden="true">&#x1F4E6;</span>
+      <strong>{{ t("app_name") }}</strong>
+      <span class="badge badge-version" title="Current build">{{ APP_VERSION }}</span>
+    </div>
     <div class="actions-row">
-      <button id="themeToggle" class="btn btn-outline" title="{{ t('toggle_theme') }}">{{ t('toggle_theme') }}</button>
+      <button id="themeToggle" class="btn btn-outline" type="button" title="{{ t('toggle_theme') }}">
+        {{ t('toggle_theme') }}
+      </button>
       <a href="{{ url_for('logout') }}" class="btn btn-red">{{ t('logout') }}</a>
     </div>
   </header>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <div class="flash-area container">
+      <div class="flash-area container" role="status" aria-live="polite">
         {% for category, msg in messages %}
           <div class="flash {{ category }}">{{ msg }}</div>
         {% endfor %}
@@ -67,23 +58,29 @@
     {% endif %}
   {% endwith %}
 
-  <main class="container">
+  <main class="container" role="main">
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="footer container">{{ t('made_with') }} — {{ t('version') }} {{ APP_VERSION }}</footer>
+  <footer class="footer container" role="contentinfo">
+    {{ t('made_with') }} — {{ t('version') }} {{ APP_VERSION }}
+  </footer>
 
+  <!-- Theme toggle -->
   <script>
-    const toggle = document.getElementById('themeToggle');
-    if (toggle) {
+    (function () {
+      const toggle = document.getElementById('themeToggle');
+      if (!toggle) return;
       toggle.addEventListener('click', () => {
         const root = document.documentElement;
         const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         root.setAttribute('data-theme', next);
-        try { localStorage.setItem('vanta-theme', next); } catch(e) {}
-        document.dispatchEvent(new CustomEvent('vanta-theme-change', {detail:{theme:next}}));
+        // Update prepaint background to keep transitions clean
+        root.style.backgroundColor = (next === 'dark') ? '#0b1220' : '#f6f7fb';
+        try { localStorage.setItem('vanta-theme', next); } catch (e) {}
+        document.dispatchEvent(new CustomEvent('vanta-theme-change', { detail: { theme: next } }));
       });
-    }
+    })();
   </script>
 </body>
 </html>
