@@ -351,9 +351,11 @@ def index():
 
     # ---------- today revenue/profit ----------
     if using_sqlite:
+        # IMPORTANT: convert stored UTC timestamp to localtime for day matching
         row = db.db_one("""
             SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
-            FROM sales WHERE DATE(sold_at)=DATE('now','localtime')
+            FROM sales
+            WHERE DATE(sold_at, 'localtime') = DATE('now','localtime')
         """)
     else:
         row = db.db_one("""
@@ -404,7 +406,9 @@ def index():
               UNION ALL SELECT DATE('now','localtime')
             )
             SELECT d AS day,
-                   COALESCE((SELECT SUM(qty*sell_price) FROM sales s WHERE DATE(s.sold_at)=d),0) AS revenue
+                   COALESCE((SELECT SUM(qty*sell_price)
+                             FROM sales s
+                             WHERE DATE(s.sold_at, 'localtime') = d),0) AS revenue
             FROM days
         """)
     else:
@@ -437,7 +441,7 @@ def index():
                    s.sold_at    AS sold_at
             FROM sales s
             JOIN inventory i ON i.id = s.item_id
-            WHERE DATE(s.sold_at) = DATE('now','localtime')
+            WHERE DATE(s.sold_at, 'localtime') = DATE('now','localtime')
             ORDER BY s.sold_at DESC
         """)
     else:
@@ -592,7 +596,6 @@ def sell_item():
 
     flash(f"Sold {qty} unit(s). Profit: {fmt_money(profit)}", "success")
     return redirect(url_for("index"))
-
 
 
 # ↩️ Return a sale: restock inventory + remove sale
