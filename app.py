@@ -216,6 +216,13 @@ def handle_error(e):
 def _inject_currency():
     g.CURRENCY = get_curr()
 
+@app.after_request
+def _force_utf8(resp):
+    if resp.content_type and resp.content_type.startswith("text/html"):
+        resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    return resp
+
+
 @app.template_filter("ccy")
 def ccy(amount):
     # Convert from DB currency -> current UI currency.

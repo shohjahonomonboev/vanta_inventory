@@ -1,25 +1,37 @@
-{% extends "base.html" %}
-{% block title %}Edit Item — Jasurbek{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}Edit Item &mdash; Jasurbek{% endblock %}
+
 {% block content %}
-<h1>Edit Item 🛠️</h1>
+<h1>Edit Item &#x1F6E0;&#xFE0F;</h1>
 <p class="subtitle">Vanta Inventory System</p>
 
 <form method="POST" class="form-col">
-  <input type="text" name="name" placeholder="Item Name" value="{{ item['name'] }}" required>
+  <!-- item tuple: [0]=id, [1]=name, [2]=buy, [3]=sell, [4]=quantity, ... -->
+  <input type="text" name="name" placeholder="Item Name" value="{{ item[1] }}" required>
 
-  <!-- Show prices in current UI currency; they’ll be converted back to UZS on save -->
-  <input type="text" name="buying_price" data-money data-decimals="0"
-         placeholder="Buying Price ({{ CURRENCY }})"
-         value="{{ (item['buying_price'] | ccy) | money }}"
-         required>
+  <!-- Show prices in current UI currency; converted back to UZS on save -->
+  <input
+    type="text"
+    name="buying_price"
+    data-money
+    data-decimals="0"
+    placeholder="Buying Price ({{ CURRENCY }})"
+    value="{{ (item[2] | ccy) | money }}"
+    required>
 
-  <input type="text" name="selling_price" data-money data-decimals="0"
-         placeholder="Selling Price ({{ CURRENCY }})"
-         value="{{ (item['selling_price'] | ccy) | money }}"
-         required>
+  <input
+    type="text"
+    name="selling_price"
+    data-money
+    data-decimals="0"
+    placeholder="Selling Price ({{ CURRENCY }})"
+    value="{{ (item[3] | ccy) | money }}"
+    required>
 
-  <input type="number" name="quantity" placeholder="Quantity" value="{{ item['quantity'] }}" required>
+  <input type="number" name="quantity" placeholder="Quantity" value="{{ item[4] }}" min="0" required>
+
   <button type="submit">Update</button>
+  <a href="{{ url_for('index') }}" class="btn btn-light" style="margin-left:.5rem">Cancel</a>
 </form>
 
 <!-- Live input money formatter (same as index.html) -->
@@ -45,3 +57,5 @@
 })();
 </script>
 {% endblock %}
+
+
