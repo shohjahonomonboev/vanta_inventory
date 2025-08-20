@@ -1027,6 +1027,43 @@ def forgot_password_post():
     return redirect(url_for("login"))
 
 
+@app.get("/__debug/now")
+def __debug_now():
+    using_sqlite = db.DATABASE_URL.startswith("sqlite")
+    server_now = datetime.utcnow().isoformat() + "Z"
+    if using_sqlite:
+        r = db.db_one("SELECT datetime('now'), date('now')")
+        return jsonify({"server_utc": server_now, "sqlite_datetime_now": r[0], "sqlite_date_now": r[1]})
+    else:
+        r = db.db_one("SELECT NOW() AT TIME ZONE 'UTC', CURRENT_DATE")
+        return jsonify({"server_utc": server_now, "pg_now_utc": str(r[0]), "pg_current_date": str(r[1])})
+
+@app.get("/__debug/sales")
+def __debug_sales():
+    rows = db.db_all("SELECT id, item_id, qty, sell_price, profit, sold_at FROM sales ORDER BY id DESC LIMIT 10")
+    return jsonify([{
+        "id": r[0], "item_id": r[1], "qty": r[2], "sell_price": float(r[3] or 0),
+        "profit": float(r[4] or 0), "sold_at": str(r[5])
+    } for r in rows])
+
+@app.post("/__admin/wipe")
+def __admin_wipe():
+    # dev-only guard: must be logged in AND in debug
+    if not (app.debug and is_logged_in()):
+        return "Forbidden", 403
+    try:
+        db.db_exec("DELETE FROM sales")
+        db.db_exec("DELETE FROM inventory")
+        if db.DATABASE_URL.startswith("sqlite"):
+            # shrink file
+            db.db_exec("VACUUM")
+        flash("Local DB wiped.", "success")
+    except Exception as e:
+        flash(f"Failed to wipe DB: {e}", "error")
+    return redirect(url_for("index"))
+
+
+
 # =========================
 # Dev entry
 # =========================
