@@ -2,7 +2,6 @@
 {% block title %}{{ t("app_name") }}{% endblock %}
 {% block content %}
 
-<!-- Brand badge (optional) -->
 <div class="logo-container" style="text-align:center;margin-bottom:8px;">
   <img src="{{ url_for('static', filename='jasurbek_logo.png') }}" class="logo" alt="Jasurbek Logo" style="max-height:64px;">
 </div>
@@ -39,7 +38,7 @@
 </form>
 
 <script>
-  // Prefill sell price in current UI currency (server converted via | ccy)
+  // Prefill sell price (UI currency)
   const priceMap = {
     {% for item in inventory -%}
       "{{ item[0] }}": {{ item[3] | ccy | float }},
@@ -59,14 +58,13 @@
   })();
 </script>
 
-<!-- Add Item (with tooltip) -->
-<h2 class="add-item-title">Add Item</h2>
-<p class="hint">Prices you enter are in UI currency <strong>{{ CURRENCY }}</strong>. They’re stored internally in <strong>UZS</strong>.</p>
-  {{ t("add_item") }}
-  <span class="info-badge" tabindex="0" aria-label="Info">i</span>
-  <span class="tooltip-box">
-    {{ t("prices_in_ui_currency") if t("prices_in_ui_currency") else "Prices you enter are in" }}
-    <strong>{{ CURRENCY }}</strong>. They’re stored internally in <strong>UZS</strong>.
+<!-- Add Item -->
+<h2 class="section-title">
+  {{ t("add_item") or "Add Item" }}
+  <span class="info" role="button" tabindex="0"
+        aria-label="Pricing hint"
+        data-tip="Prices you enter are in UI currency {{ CURRENCY }}. They're stored internally in UZS.">
+    <i class="fa-regular fa-circle-question"></i>
   </span>
 </h2>
 
@@ -141,7 +139,6 @@
     <option value="low_stock"  {% if selected_filter == 'low_stock'  %}selected{% endif %}>{{ t('low_stock') }} (≤ 5)</option>
     <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>{{ t('high_profit') }}</option>
   </select>
-  <!-- preserve current sort -->
   <input type="hidden" name="sort" value="{{ request.args.get('sort','') }}">
   <button type="submit">{{ t('apply') }}</button>
 </form>
@@ -230,19 +227,20 @@
     </thead>
     <tbody>
       {% for it in inventory %}
-        {% set row_profit = (it[3] - it[2]) * (it[4] or 0) %}
         <tr>
           <td>{{ loop.index }}</td>
-          <td data-col="name">{{ it[1] }}</td>
-          <td data-col="qty">{{ it[4] }}</td>
-          <td data-label="{{ t('buy') }} ({{ CURRENCY }})">{{ it[2] | ccy | fmtmoney }}</td>
-          <td data-col="price" data-label="{{ t('sell') }} ({{ CURRENCY }})">{{ it[3] | ccy | fmtmoney }}</td>
-          <td data-label="{{ t('profit') }} ({{ CURRENCY }})">{{ row_profit | ccy | fmtmoney }}</td>
-          <td class="actions">
-            <a href="{{ url_for('edit_item', item_id=it[0]) }}" title="Edit">&#9998;</a>
-            <a href="{{ url_for('delete_item', item_id=it[0]) }}" onclick="return confirm('Delete item?')" title="Delete">&#10060;</a>
+          <td>{{ it[1] }}</td>
+          <td>{{ it[4] | comma }}</td>
+          <td>{{ (it[2] | ccy) | fmtmoney }}</td>
+          <td>{{ (it[3] | ccy) | fmtmoney }}</td>
+          <td>{{ (it[5] | ccy) | fmtmoney }}</td>
+          <td>
+            <a href="{{ url_for('edit_item', item_id=it[0]) }}" class="btn">Edit</a>
+            <a href="{{ url_for('delete_item', item_id=it[0]) }}" class="btn btn-red" onclick="return confirm('Delete this item?')">Delete</a>
           </td>
         </tr>
+      {% else %}
+        <tr><td colspan="7" style="text-align:center; opacity:.7">No items found.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -264,119 +262,168 @@
         <th>{{ t("action") }}</th>
       </tr>
     </thead>
-    <tbody>
-      {% for s in sales_today %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ s[2] }}</td>
-          <td>{{ s[3] }}</td>
-          <td>{{ s[4] | ccy | fmtmoney }}</td>
-          <td>{{ s[5] | ccy | fmtmoney }}</td>
-          <td class="actions">
-            <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
-              <button class="btn btn-icon" title="Return">&#8617;</button>
-            </form>
-            <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline" onsubmit="return confirm('Delete sale record?')">
-              <button class="btn btn-icon" title="Delete">&#128465;</button>
-            </form>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="6" style="text-align:center; opacity:.7">No sales yet today.</td></tr>
-      {% endfor %}
-    </tbody>
+   <tbody>
+  {% for it in inventory %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ it[1] }}</td>
+      <td>{{ it[4] | comma }}</td>
+      <td>{{ (it[2] | ccy) | fmtmoney }}</td>
+      <td>{{ (it[3] | ccy) | fmtmoney }}</td>
+      <td>{{ (it[5] | ccy) | fmtmoney }}</td>
+      <td>
+        <a href="{{ url_for('edit_item', item_id=it[0]) }}" class="btn">Edit</a>
+        <a href="{{ url_for('delete_item', item_id=it[0]) }}" class="btn btn-red"
+           onclick="return confirm('Delete this item?')">Delete</a>
+      </td>
+    </tr>
+  {% endfor %}
+</tbody>
   </table>
 </div>
 
-<!-- Insights -->
-<h2>{{ t("insights") }}</h2>
-<div class="grid-2">
-  <div class="chart-card"><canvas id="topProfitChart"></canvas></div>
-  <div class="chart-card"><canvas id="lowStockChart"></canvas></div>
-  <div class="chart-card"><canvas id="stockTrackerChart"></canvas></div>
-  <div class="chart-card"><canvas id="salesChart"></canvas></div>
-</div>
+<!-- Stock Overview (fetches from /api/stock/overview) -->
+<section class="chart-block card" style="padding:16px">
+  <div class="row" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between">
+    <h2 class="section-title" style="margin:0">Stock On Hand — Overview
+      <span class="info" tabindex="0" data-tip="Bars show quantity per item; the line shows total stock value. Use search, sort, and Top N to focus. Scroll to zoom, drag to pan. Double-click to reset."></span>
+    </h2>
+
+    <div class="chart-controls" style="gap:8px">
+      <input id="soh-search" type="search" placeholder="Search items…" style="padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text)">
+      <label style="display:inline-flex;align-items:center;gap:6px">
+        Sort
+        <select id="soh-sort" style="padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text)">
+          <option value="qty_desc">Qty (high→low)</option>
+          <option value="value_desc">Value (high→low)</option>
+          <option value="profit_desc">Profit/unit (high→low)</option>
+          <option value="name_asc">Name (A→Z)</option>
+        </select>
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:6px">
+        Top N
+        <input id="soh-topn" type="number" min="1" step="1" value="25" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text)">
+      </label>
+      <label style="display:inline-flex;align-items:center;gap:6px">
+        <input id="soh-hide-zero" type="checkbox" checked>
+        Hide zero qty
+      </label>
+      <button id="soh-reset" class="btn btn-outline">Reset view</button>
+    </div>
+  </div>
+
+  <div class="chart-card" style="height:420px;margin-top:10px">
+    <canvas id="stockOverview"></canvas>
+  </div>
+</section>
 
 <script>
-  const currency = "{{ CURRENCY }}";
-  const locale = "{{ 'en-US' if USER_LANG == 'en' else 'uz-UZ' }}";
-  const numberFmt = new Intl.NumberFormat(locale, { style: 'currency', currency });
-  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const moneyFmt = (v) => numberFmt.format(Number(v || 0));
+const ctx = document.getElementById("stockOverview").getContext("2d");
+const currency = "{{ CURRENCY }}";
 
-  function makeGradient(ctx, c1, c2){
-    const g = ctx.createLinearGradient(0,0,0,300);
-    g.addColorStop(0, c1); g.addColorStop(1, c2); return g;
-  }
+let stockData = [];   // will be filled from API
+let chart;
 
-  function baseOptions(title){
-    const textColor = css('--muted');
-    const gridColor = css('--grid');
-    return {
-      responsive:true, maintainAspectRatio:false,
-      plugins:{
-        legend:{ labels:{ color:textColor, usePointStyle:true, pointStyle:'circle' } },
-        title:{ display: !!title, text:title, color:textColor, padding:18 },
-        tooltip:{ callbacks:{ label:(ctx)=> moneyFmt(ctx.parsed.y) } }
+function renderChart(filtered) {
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: filtered.map(i => i.name),
+      datasets: [
+        {
+          label: "Quantity",
+          data: filtered.map(i => i.qty),
+          backgroundColor: "rgba(59,130,246,0.5)",
+          borderColor: "rgb(59,130,246)",
+          borderWidth: 1,
+          yAxisID: "y"
+        },
+        {
+          label: `Stock Value (${currency})`,
+          data: filtered.map(i => i.value),
+          backgroundColor: "rgba(16,185,129,0.4)",
+          borderColor: "rgb(16,185,129)",
+          borderWidth: 1,
+          type: "line",
+          yAxisID: "y1"
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: "top" },
+        tooltip: {
+          mode: "index",
+          intersect: false,
+          callbacks: {
+            label: function(ctx) {
+              const value = ctx.parsed.y;
+              if (ctx.dataset.label.includes("Value")) {
+                return `${ctx.dataset.label}: ${value.toLocaleString()} ${currency}`;
+              }
+              return `${ctx.dataset.label}: ${value.toLocaleString()}`;
+            }
+          }
+        }
       },
-      scales:{
-        x:{ grid:{ display:false }, ticks:{ color:textColor } },
-        y:{ grid:{ color:gridColor, drawBorder:false }, ticks:{ color:textColor, callback:v=>moneyFmt(v) } }
-      },
-      animation:{ duration:600, easing:'easeOutQuart' }
-    };
+      interaction: { mode: "nearest", axis: "x", intersect: false },
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: "Quantity" } },
+        y1: { beginAtZero: true, position: "right", title: { display: true, text: `Stock Value (${currency})` } }
+      }
+    }
+  });
+}
+
+function applyFilters() {
+  let data = [...stockData];
+  const q = document.getElementById("soh-search").value.toLowerCase();
+  const sort = document.getElementById("soh-sort").value;
+  const topN = parseInt(document.getElementById("soh-topn").value) || data.length;
+  const hideZero = document.getElementById("soh-hide-zero").checked;
+
+  if (q) data = data.filter(i => i.name.toLowerCase().includes(q));
+  if (hideZero) data = data.filter(i => i.qty > 0);
+
+  switch (sort) {
+    case "qty_desc": data.sort((a,b) => b.qty - a.qty); break;
+    case "value_desc": data.sort((a,b) => b.value - a.value); break;
+    case "profit_desc": data.sort((a,b) => (b.profit_per_unit || 0) - (a.profit_per_unit || 0)); break;
+    case "name_asc": data.sort((a,b) => a.name.localeCompare(b.name)); break;
   }
 
-  function buildCharts(){
-    const primary = css('--primary');
-    const cyan = css('--cyan');
+  renderChart(data.slice(0, topN));
+}
 
-    {% if top_profit_labels is defined and top_profit_values is defined %}
-    (function(){
-      const el = document.getElementById('topProfitChart'); if(!el) return;
-      const ctx = el.getContext('2d');
-      new Chart(ctx,{ type:'bar', data:{ labels: {{ top_profit_labels|tojson }}, datasets:[{
-        label:'{{ t("top_profit_label") }}', data: {{ top_profit_values|tojson }},
-        backgroundColor: makeGradient(ctx, primary, 'rgba(96,165,250,.25)'), borderRadius: 10
-      }]}, options: baseOptions('{{ t("top_profit_title") }}') });
-    })();
-    {% endif %}
+// Wire up controls
+["soh-search","soh-sort","soh-topn","soh-hide-zero"].forEach(id =>
+  document.getElementById(id)?.addEventListener("input", applyFilters)
+);
+document.getElementById("soh-reset")?.addEventListener("click", () => {
+  document.getElementById("soh-search").value = "";
+  document.getElementById("soh-sort").value = "qty_desc";
+  document.getElementById("soh-topn").value = 25;
+  document.getElementById("soh-hide-zero").checked = true;
+  applyFilters();
+});
 
-    {% if low_stock_labels is defined and low_stock_values is defined %}
-    (function(){
-      const el = document.getElementById('lowStockChart'); if(!el) return;
-      const ctx = el.getContext('2d');
-      new Chart(ctx,{ type:'bar', data:{ labels: {{ low_stock_labels|tojson }}, datasets:[{
-        label:'{{ t("low_stock_label") }}', data: {{ low_stock_values|tojson }},
-        backgroundColor: makeGradient(ctx, cyan, 'rgba(34,211,238,.25)'), borderRadius: 10
-      }]}, options: baseOptions('{{ t("low_stock_title") }}') });
-    })();
-    {% endif %}
-
-    (function(){
-      const el = document.getElementById('stockTrackerChart'); if(!el) return;
-      const ctx = el.getContext('2d');
-      new Chart(ctx,{ type:'line', data:{ labels: {{ stock_labels|tojson }}, datasets:[{
-        label:'{{ t("stock_tracker_label") }}', data: {{ stock_values|tojson }}, tension:.35, fill:true,
-        backgroundColor: makeGradient(ctx, 'rgba(96,165,250,.25)', 'rgba(96,165,250,.05)'),
-        borderColor: css('--primary'), pointRadius: 2
-      }]}, options: baseOptions('{{ t("stock_tracker_title") }}') });
-    })();
-
-    (function(){
-      const el = document.getElementById('salesChart'); if(!el) return;
-      const ctx = el.getContext('2d');
-      new Chart(ctx,{ type:'line', data:{ labels: {{ sales_labels|tojson }}, datasets:[{
-        label:'{{ t("daily_revenue_label") }} ({{ CURRENCY }})', data: {{ sales_values|tojson }}, tension:.35, fill:true,
-        backgroundColor: makeGradient(ctx, 'rgba(34,197,94,.20)', 'rgba(34,197,94,.05)'),
-        borderColor: css('--green'), pointRadius: 2
-      }]}, options: baseOptions('{{ t("revenue_7d_title") }}') });
-    })();
-  }
-
-  buildCharts();
-  document.addEventListener('vanta-theme-change', buildCharts);
+// 🔌 Fetch data from your API (must be logged in; otherwise API returns 401)
+fetch("/api/stock/overview")
+  .then(r => r.ok ? r.json() : { items: [] })
+  .then(d => {
+    stockData = (d.items || []).map(i => ({
+      name: i.name,
+      qty: i.qty,
+      value: i.value,
+      profit_per_unit: i.profit_per
+    }));
+    applyFilters();
+  })
+  .catch(() => { stockData = []; applyFilters(); });
 </script>
+
 
 <!-- Live input money formatter -->
 <script>
@@ -409,7 +456,7 @@
 <!-- Export & Backup -->
 <h2 class="export-title">{{ t("export_backup") }}</h2>
 <p class="hint">
-  <strong>{{ t("download_excel") }}</strong> — export your current inventory.  
+  <strong>{{ t("download_excel") }}</strong> — export your current inventory.<br>
   <strong>{{ t("backup_now") }}</strong> — create a ZIP with CSVs of your tables.
 </p>
 

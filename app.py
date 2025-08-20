@@ -1,26 +1,28 @@
 # app.py — Vanta Inventory (FINAL, merged, advanced)
-# - Cleaned imports & datetime usage
-# - Robust currency/i18n helpers (USD/AED/UZS)
+# - Clean imports & logging
+# - Robust currency/i18n helpers (USD/AED/UZS) with caching FX
 # - Search + filter + 6-way sort (server param → in-memory)
-# - Sold Items (Today) with Return (restock) & Delete
-# - Excel export (dual currency) + DB backup (CSV ZIP)
-# - Health/version + GEO/Rates APIs
-# - Login/logout + edit/add/sell
-# - Works with sqlite or Postgres via database_sqlalchemy
+# - Sell / Add / Edit / Delete / Return sale
+# - Excel export (dual currency) with number formats
+# - DB backup to ZIP (CSV per table) for Postgres
+# - Health/version + GEO/Rates APIs (offline-safe)
+# - Hardened login/logout (env-configurable admins, case-insensitive)
+# - Advanced Stock Overview API for the chart (JSON + 401 if unauth)
 
 import os, io, time, json, zipfile, logging, sys
 from decimal import Decimal
 from urllib.parse import urlparse
+from datetime import datetime, date
 
 from flask import (
     Flask, render_template, request, redirect, url_for,
     session, flash, send_file, jsonify, g
 )
 
-# Optional Babel currency formatting
+# Optional Babel for pretty money format (fallback below)
 try:
     from babel.numbers import format_currency as _format_currency
-except Exception:
+except Exception:  # fallback if babel not installed
     def _format_currency(value, currency, locale=None):
         try:
             return f"{float(value or 0):,.2f} {currency}"
@@ -29,36 +31,81 @@ except Exception:
 
 import requests
 
-# Your DB helpers (must expose db_all, db_one, db_exec, DATABASE_URL)
+# Your DB helpers (SQLAlchemy wrapper):
+# must expose: db_all(sql, params=None), db_one(sql, params=None), db_exec(sql, params=None), DATABASE_URL
 import database_sqlalchemy as db
 from database_sqlalchemy import ensure_schema
-from i18n import t
 
-import sqlite3  # kept for local helpers (optional)
-from datetime import datetime, date
+from i18n import t  # your translation helper
+
+# Offline mode (skip all external HTTP and use safe defaults)
+OFFLINE = os.getenv("OFFLINE", "0").lower() in ("1", "true", "yes")
+
 
 # =========================
-# Optional local sqlite helpers
+# App bootstrap + logging
 # =========================
-DB_PATH = os.getenv("DB_PATH", os.path.join(os.path.dirname(__file__), "local.db"))
+app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "dev-only-change-me")
 
-def get_conn():
-    """Local sqlite connector (not used by main path, kept for local ops if needed)."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+app.logger.addHandler(handler)
+app.logger.setLevel(logging.INFO)
 
-def get_today_bounds():
-    today = date.today()
-    start = datetime.combine(today, datetime.min.time()).isoformat()
-    end   = datetime.combine(today, datetime.max.time()).isoformat()
-    return start, end
+# Ensure DB schema at boot
+with app.app_context():
+    try:
+        ensure_schema()
+        app.logger.info("✅ Database schema ensured at startup.")
+    except Exception:
+        app.logger.exception("⚠️ Failed to ensure schema")
+
+# Global error guard (keep simple response, log stack)
+@app.errorhandler(Exception)
+def handle_error(e):
+    app.logger.exception("Unhandled exception")
+    return "Internal Server Error", 500
+
+
+# =========================
+# Env tweaks
+# =========================
+ENV = os.getenv("ENV", "dev").lower()
+if ENV == "dev":
+    app.config.update(
+        DEBUG=True, TEMPLATES_AUTO_RELOAD=True, SERVER_NAME=None,
+        SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax",
+    )
+else:
+    app.config.update(
+        TEMPLATES_AUTO_RELOAD=False, SEND_FILE_MAX_AGE_DEFAULT=31536000,
+        SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE="Lax",
+    )
+
+
+# =========================
+# Version / Health
+# =========================
+def get_version():
+    try:
+        return open("VERSION", encoding="utf-8").read().strip()
+    except Exception:
+        return os.getenv("APP_VERSION", "v1.0.0")
+
+@app.context_processor
+def inject_version():
+    return {"APP_VERSION": get_version()}
+
+@app.get("/__health")
+def __health():
+    return jsonify(status="ok", version=get_version()), 200
 
 
 # =========================
 # Currency / i18n helpers
 # =========================
-BASE_CCY = "UZS"          # Stored DB currency
+BASE_CCY = "UZS"          # DB-stored currency
 DEFAULT_LANG = "en"
 DEFAULT_CURR = "USD"
 _SUPPORTED = {"USD", "AED", "UZS"}
@@ -81,9 +128,13 @@ def fmt_money(value, curr=None, lang=None):
         except Exception:
             return f"{value} {curr}"
 
-# Live USD-based FX with caching (1 USD = rates[currency])
+# FX cache: 1 USD = rate[currency]
 _FX_CACHE = {"rates": None, "ts": 0}
 def _fetch_usd_rates():
+    # Always return something usable
+    if OFFLINE:
+        return {"USD": 1.0, "AED": 3.6725, "UZS": 12600.0}
+
     now = time.time()
     if _FX_CACHE["rates"] and (now - _FX_CACHE["ts"]) < 3600:
         return _FX_CACHE["rates"]
@@ -130,8 +181,9 @@ def _fetch_usd_rates():
     if not rates:
         rates = {"USD": 1.0, "AED": 3.6725, "UZS": 12600.0}
 
-    _FX_CACHE.update({"rates": rates, "ts": now})
+    _FX_CACHE.update({"rates": rates, "ts": time.time()})
     return rates
+
 
 def _derive_rates_from_usd(base):
     R = _fetch_usd_rates()
@@ -150,7 +202,6 @@ def _derive_rates_from_usd(base):
     return base, out
 
 def convert_amount(value, from_curr=None, to_curr=None):
-    # amount[from_curr] -> USD -> to_curr
     try:
         v = float(value or 0)
     except Exception:
@@ -170,7 +221,7 @@ def convert_amount(value, from_curr=None, to_curr=None):
 def fmt_money_auto(value, from_curr=None):
     return fmt_money(convert_amount(value, from_curr=from_curr, to_curr=get_curr()))
 
-# Legacy numeric helpers (renamed to avoid clashing with Jinja filter name)
+# Money parsing helpers (for “1,234” inputs)
 def money_plain(v, decimals=0):
     try:
         v = float(str(v).replace(",", ""))
@@ -186,47 +237,75 @@ def parse_money(s):
 
 
 # =========================
-# App bootstrap
+# Auth (hardened)
 # =========================
-app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "dev-only-change-me")
+def _load_admins():
+    """
+    Load admins from env:
+      ADMIN_USERS_JSON='{"admin":"admin","jasur":"jasur2025"}'
+      -or-
+      ADMIN_USERS='admin:admin,jasur:jasur2025'
+    Fallback includes 'vanta:beastmode' + 'jasur:jasur2025'.
+    Keys stored casefold() for case-insensitive matching.
+    """
+    raw_json = os.environ.get("ADMIN_USERS_JSON", "").strip()
+    if raw_json:
+        try:
+            data = json.loads(raw_json)
+            return { (k or "").casefold(): str(v) for k, v in data.items() }
+        except Exception:
+            pass
 
-# Logging (works on Render)
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.INFO)
-app.logger.addHandler(handler)
-app.logger.setLevel(logging.INFO)
+    raw_pairs = os.environ.get("ADMIN_USERS", "").strip()
+    if raw_pairs:
+        try:
+            pairs = dict(pair.split(":", 1) for pair in raw_pairs.split(","))
+            return { (k or "").casefold(): str(v) for k, v in pairs.items() }
+        except Exception:
+            pass
 
-# Ensure DB schema
-with app.app_context():
-    try:
-        ensure_schema()
-        app.logger.info("✅ Database schema ensured at startup.")
-    except Exception:
-        app.logger.exception("⚠️ Failed to ensure schema")
+    return {"vanta": "beastmode", "jasur": "jasur2025"}
 
-# Global error handler
-@app.errorhandler(Exception)
-def handle_error(e):
-    app.logger.exception("Unhandled exception")
-    return "Internal Server Error", 500
+ADMIN_USERS = _load_admins()
+ADMIN_ADMINS = set(ADMIN_USERS.keys())  # allow-list
 
+def is_logged_in():
+    return bool(session.get("logged_in"))
+
+def is_admin_user():
+    return (session.get("user") or "").casefold() in ADMIN_ADMINS
+
+
+# =========================
 # Jinja filters / context
+# =========================
 @app.before_request
 def _inject_currency():
     g.CURRENCY = get_curr()
 
 @app.template_filter("ccy")
 def ccy(amount):
-    # Convert from DB currency -> current UI currency.
+    # DB currency (UZS) → UI currency
     return convert_amount(amount, from_curr=BASE_CCY, to_curr=get_curr())
 
 @app.template_filter("fmtmoney")
 def fmtmoney(amount):
     return fmt_money(amount, curr=get_curr(), lang=get_lang())
 
-# Back-compat: 'money' filter → currency formatter
-app.jinja_env.filters["money"] = fmtmoney
+# extra helpers for tables
+@app.template_filter("comma")
+def comma(x):
+    try:
+        return f"{int(x):,}"
+    except Exception:
+        return x
+
+@app.template_filter("moneyfmt")
+def moneyfmt(x, currency=""):
+    try:
+        return f"{int(float(x)):,} {currency}" if currency else f"{int(float(x)):,}"
+    except Exception:
+        return x
 
 @app.context_processor
 def inject_helpers():
@@ -241,98 +320,52 @@ def inject_helpers():
         "t": lambda key, _lang=None: t(key, lang if _lang is None else _lang),
     }
 
-
-# =========================
-# Version / Health
-# =========================
-def get_version():
+@app.template_filter("money")
+def money_filter(v):
+    # show plain number with thousand separators, no currency symbol
     try:
-        return open("VERSION", encoding="utf-8").read().strip()
+        return money_plain(v, decimals=0)
     except Exception:
-        return "dev"
-
-@app.context_processor
-def inject_version():
-    return {"APP_VERSION": get_version()}
-
-@app.get("/__health")
-def __health():
-    return jsonify(status="ok", version=get_version()), 200
-
-
-# =========================
-# Env tweaks
-# =========================
-ENV = os.getenv("ENV", "dev").lower()
-if ENV == "dev":
-    app.config.update(
-        DEBUG=True, TEMPLATES_AUTO_RELOAD=True, SERVER_NAME=None,
-        SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax",
-    )
-else:
-    app.config.update(
-        TEMPLATES_AUTO_RELOAD=False, SEND_FILE_MAX_AGE_DEFAULT=31536000,
-        SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE="Lax",
-    )
-
-
-# =========================
-# Auth
-# =========================
-ADMIN_USERS_ENV = os.environ.get("ADMIN_USERS")
-if ADMIN_USERS_ENV:
-    ADMIN_USERS = dict(pair.split(":", 1) for pair in ADMIN_USERS_ENV.split(","))
-else:
-    ADMIN_USERS = {"vanta": "beastmode", "jasur": "jasur2025"}
-
-def is_logged_in():
-    return bool(session.get("logged_in"))
-
-# Admin allowlist
-ADMIN_ADMINS_ENV = os.environ.get("ADMIN_ADMINS")
-if ADMIN_ADMINS_ENV:
-    ADMIN_ADMINS = {u.strip() for u in ADMIN_ADMINS_ENV.split(",") if u.strip()}
-else:
-    ADMIN_ADMINS = set(ADMIN_USERS.keys())
-
-def is_admin_user():
-    return session.get("user") in ADMIN_ADMINS
-
+        return v
 
 # =========================
 # Data access
 # =========================
 def get_inventory():
-    # Ensure profit never NULL at source
     rows = db.db_all("""
-        SELECT id,
-               name,
-               buying_price,
-               selling_price,
-               quantity,
-               COALESCE(profit, (selling_price - buying_price) * quantity, 0) AS profit,
-               COALESCE(currency, 'UZS') AS currency
+        SELECT
+            id,
+            name,
+            buying_price,
+            selling_price,
+            quantity,
+            CASE
+              WHEN profit IS NULL OR profit = 0
+                THEN (selling_price - buying_price) * quantity
+              ELSE profit
+            END AS profit,
+            COALESCE(currency, :c) AS currency
         FROM inventory
         ORDER BY id
-    """)
+    """, {"c": BASE_CCY})
     return [tuple(r) for r in rows]
 
 
 # =========================
-# Routes
+# Pages / Routes
 # =========================
 @app.route("/")
 def index():
     if not is_logged_in():
         return redirect(url_for("login"))
 
-    # ---------- params ----------
+    # ----- params -----
     search_query    = (request.values.get("search", "") or "").strip().lower()
     selected_filter = request.values.get("filter", "")
     sort_by         = request.args.get("sort_by", "id")
     direction       = request.args.get("direction", "asc")
 
-    # Map ?sort=name_asc|name_desc|qty_asc|qty_desc|price_asc|price_desc → in-memory sorter
+    # support ?sort=name_asc|name_desc|qty_asc|qty_desc|price_asc|price_desc
     sort_param = request.args.get("sort")
     if sort_param:
         mapping = {
@@ -345,11 +378,11 @@ def index():
         }
         sort_by, direction = mapping.get(sort_param, (sort_by, direction))
 
-    # ---------- data ----------
+    # ----- data -----
     inventory = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
     using_sqlite = db.DATABASE_URL.startswith("sqlite")
 
-    # ---------- today revenue/profit ----------
+    # Today revenue/profit
     if using_sqlite:
         row = db.db_one("""
             SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
@@ -362,7 +395,7 @@ def index():
         """)
     today_revenue, today_profit = (row[0] if row else 0), (row[1] if row else 0)
 
-    # ---------- filtering ----------
+    # Filtering
     if search_query:
         inventory = [it for it in inventory if search_query in (it[1] or "").lower()]
     if selected_filter == "low_stock":
@@ -370,7 +403,7 @@ def index():
     elif selected_filter == "high_profit":
         inventory = [it for it in inventory if (it[5] or 0) >= 100]
 
-    # ---------- sorting (None-safe) ----------
+    # Sorting
     sort_map = {"name": 1, "quantity": 4, "profit": 5, "price": 3}
     if sort_by in sort_map:
         idx = sort_map[sort_by]
@@ -380,18 +413,17 @@ def index():
             reverse=(direction == "desc"),
         )
 
-    # ---------- totals (None-safe) ----------
+    # Totals
     def nz_dec(x): return x if x is not None else Decimal(0)
     def nz_int(x): return x if x is not None else 0
-
     total_quantity = sum(nz_int(it[4]) for it in inventory)
     total_profit   = sum(nz_dec(it[5]) for it in inventory)
 
-    # ---------- top/low lists ----------
+    # Top/Low lists
     top_profit_items = sorted(inventory, key=lambda x: (x[5] is None, x[5]), reverse=True)[:5]
     low_stock_items  = sorted(inventory, key=lambda x: (x[4] is None, x[4]))[:5]
 
-    # ---------- last 7 days revenue ----------
+    # Last 7 days revenue
     if using_sqlite:
         rows = db.db_all("""
             WITH days AS (
@@ -421,11 +453,11 @@ def index():
     sales_labels = [str(r[0]) for r in rows]
     sales_values = [float(r[1] or 0) for r in rows]
 
-    # ---------- stock tracker ----------
+    # Stock tracker arrays (optional legacy)
     stock_labels = [it[1] for it in inventory]
     stock_values = [nz_int(it[4]) for it in inventory]
 
-    # ---------- Sold Items — Today (JOIN for item name; alias qty→quantity) ----------
+    # Sold Items — Today (JOIN for item name)
     if using_sqlite:
         sales_today = db.db_all("""
             SELECT s.id,
@@ -455,7 +487,7 @@ def index():
             ORDER BY s.sold_at DESC
         """)
 
-    # ---------- FX for footer ----------
+    # FX for footer
     _base, _rates = _derive_rates_from_usd("USD")
     usd_to_aed = _rates.get("AED", 0)
     usd_to_uzs = _rates.get("UZS", 0)
@@ -463,7 +495,7 @@ def index():
     return render_template(
         "index.html",
         inventory=inventory,
-        # filters/sort state
+        # state
         search_query=search_query,
         sort_by=sort_by,
         direction=direction,
@@ -471,7 +503,7 @@ def index():
         # totals
         total_quantity=total_quantity,
         total_profit=total_profit,
-        # top/low lists
+        # top/low
         top_profit_labels=[it[1] for it in top_profit_items],
         top_profit_values=[float(nz_dec(it[5])) for it in top_profit_items],
         low_stock_labels=[it[1] for it in low_stock_items],
@@ -481,9 +513,9 @@ def index():
         sales_values=sales_values,
         stock_labels=stock_labels,
         stock_values=stock_values,
-        # today sales block
+        # sales today table
         sales_today=sales_today,
-        # today totals
+        # kpis
         today_revenue=today_revenue,
         today_profit=today_profit,
         # fx
@@ -546,7 +578,7 @@ def add_item():
     return redirect(url_for("index"))
 
 
-# 🛒 Sell Item  (FINAL)
+# 🛒 Sell Item
 @app.post("/sell")
 def sell_item():
     if not is_logged_in():
@@ -559,7 +591,7 @@ def sell_item():
         flash("Invalid item or quantity.", "error")
         return redirect(url_for("index"))
 
-    # price comes from UI currency → convert to DB currency (UZS)
+    # price (UI) → DB currency
     raw_price = request.form.get("sell_price") or request.form.get("price") or request.form.get("sell")
     sell_price_ui = parse_money(raw_price)
     sell_price    = convert_amount(sell_price_ui, from_curr=get_curr(), to_curr=BASE_CCY)
@@ -577,16 +609,13 @@ def sell_item():
         flash("Not enough stock!", "error")
         return redirect(url_for("index"))
 
-    # profit uses *unit* sell_price as stored in DB; revenue is qty*sell_price in queries
     profit = (sell_price - buy_price) * qty
 
-    # 1) record sale WITH TIMESTAMP
+    # record sale + reduce stock
     db.db_exec("""
         INSERT INTO sales (item_id, qty, sell_price, profit, sold_at)
         VALUES (:id, :q, :sp, :pf, CURRENT_TIMESTAMP)
     """, {"id": item_id, "q": qty, "sp": sell_price, "pf": profit})
-
-    # 2) reduce stock
     db.db_exec("UPDATE inventory SET quantity = quantity - :q WHERE id = :id",
                {"q": qty, "id": item_id})
 
@@ -594,38 +623,32 @@ def sell_item():
     return redirect(url_for("index"))
 
 
-
-# ↩️ Return a sale: restock inventory + remove sale
+# ↩️ Return sale (restock + remove record)
 @app.post("/sales/<int:sale_id>/return")
 def return_sale(sale_id):
     if not is_logged_in():
         return redirect(url_for("login"))
-
     try:
         sale = db.db_one("SELECT id, item_id, qty FROM sales WHERE id=:id", {"id": sale_id})
         if not sale:
-            flash("Sale not found.", "error")
-            return redirect(url_for("index"))
+            flash("Sale not found.", "error"); return redirect(url_for("index"))
 
         qty = int(sale[2] or 0)
         if qty <= 0:
             db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
-            flash("Sale record removed (no quantity to return).", "warning")
+            flash("Sale removed (no quantity to return).", "warning")
             return redirect(url_for("index"))
 
         inv = db.db_one("SELECT id FROM inventory WHERE id=:id", {"id": sale[1]})
         if not inv:
-            flash("Linked inventory item not found — sale not returned.", "error")
-            return redirect(url_for("index"))
+            flash("Linked inventory item not found.", "error"); return redirect(url_for("index"))
 
         db.db_exec("UPDATE inventory SET quantity = quantity + :q WHERE id = :id",
                    {"q": qty, "id": sale[1]})
         db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
-
-        flash("Item returned to inventory and removed from today's sales.", "success")
+        flash("Item returned to inventory and sale removed.", "success")
     except Exception as e:
         flash(f"Return failed: {e}", "error")
-
     return redirect(url_for("index"))
 
 
@@ -703,17 +726,62 @@ def edit_item(item_id):
     return render_template("edit.html", item=item)
 
 
-# 📊 Export to Excel (dual currency: UZS + UI currency)
+# 📊 API — Stock Overview (for advanced chart)
+@app.get("/api/stock/overview")
+def api_stock_overview():
+    # Return JSON even when unauthenticated so the front-end doesn't crash
+    if not is_logged_in():
+        return jsonify({"items": [], "low_threshold": 5, "totals": {"qty": 0, "value": 0.0}}), 401
+
+    rows = db.db_all("""
+        SELECT id, name,
+               COALESCE(quantity,0)       AS qty,
+               COALESCE(buying_price,0)   AS buy,
+               COALESCE(selling_price,0)  AS sell
+        FROM inventory
+        ORDER BY name
+    """)
+
+    items, totals_qty, totals_value = [], 0, 0.0
+    low_threshold = 5
+    ui = get_curr()
+
+    for r in rows:
+        iid, name, qty, buy, sell = int(r[0]), r[1], int(r[2]), float(r[3]), float(r[4])
+        value_db = qty * sell
+        value_ui = convert_amount(value_db, from_curr=BASE_CCY, to_curr=ui)
+        items.append({
+            "id": iid, "name": name, "qty": qty,
+            "buy": convert_amount(buy,  from_curr=BASE_CCY, to_curr=ui),
+            "sell": convert_amount(sell, from_curr=BASE_CCY, to_curr=ui),
+            "value": value_ui,
+            "profit_per": max(convert_amount(sell - buy, from_curr=BASE_CCY, to_curr=ui), 0),
+            "is_low": qty <= low_threshold
+        })
+        totals_qty   += qty
+        totals_value += value_ui
+
+    return jsonify({
+        "items": items,
+        "low_threshold": low_threshold,
+        "totals": {"qty": totals_qty, "value": totals_value}
+    })
+
+
+# 📊 Export to Excel (dual currency) — polished formatting
 @app.get("/export")
 def export_excel():
     if not is_logged_in():
         return redirect(url_for("login"))
 
     import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import CellIsRule
 
     ui_curr = get_curr()
     base_ccy = BASE_CCY
-    inventory = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
+    inventory = get_inventory()
 
     wb = openpyxl.Workbook()
     sh = wb.active
@@ -723,60 +791,68 @@ def export_excel():
     sh["A2"] = f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     sh["A3"] = f"Stored currency (DB): {base_ccy}"
     sh["A4"] = f"UI currency: {ui_curr}"
-    start_row = 6
 
+    start_row = 6
     headers = [
         "ID", "Name",
         f"Buying ({base_ccy})", f"Selling ({base_ccy})", "Quantity", f"Profit ({base_ccy})",
         f"Buying ({ui_curr})",  f"Selling ({ui_curr})",  f"Profit ({ui_curr})",
     ]
-    sh.append([""] * len(headers))
+
     for c, h in enumerate(headers, start=1):
-        sh.cell(row=start_row, column=c, value=h)
+        cell = sh.cell(row=start_row, column=c, value=h)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="2563EB")  # premium blue header
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    sh.freeze_panes = f"A{start_row+1}"
+    sh.auto_filter.ref = f"A{start_row}:{get_column_letter(len(headers))}{start_row}"
+
+    fmt_int      = '#,##0'
+    fmt_ccy_base = f'#,##0 "{base_ccy}"'
+    fmt_ccy_ui   = f'#,##0 "{ui_curr}"'
 
     rowi = start_row + 1
-    total_qty = 0
-    total_profit_uzs = 0.0
-    total_profit_ui = 0.0
-
+    first_row = rowi
     for it in inventory:
         _id, name, buy_uzs, sell_uzs, qty, profit_uzs, _curr = it
-
         buy_ui  = convert_amount(buy_uzs,  from_curr=base_ccy, to_curr=ui_curr)
         sell_ui = convert_amount(sell_uzs, from_curr=base_ccy, to_curr=ui_curr)
         prof_ui = convert_amount(profit_uzs, from_curr=base_ccy, to_curr=ui_curr)
 
-        sh.cell(row=rowi, column=1, value=_id)
+        sh.cell(row=rowi, column=1, value=int(_id))
         sh.cell(row=rowi, column=2, value=name)
-        sh.cell(row=rowi, column=3, value=float(buy_uzs or 0))
-        sh.cell(row=rowi, column=4, value=float(sell_uzs or 0))
-        sh.cell(row=rowi, column=5, value=int(qty or 0))
-        sh.cell(row=rowi, column=6, value=float(profit_uzs or 0))
-        sh.cell(row=rowi, column=7, value=float(buy_ui or 0))
-        sh.cell(row=rowi, column=8, value=float(sell_ui or 0))
-        sh.cell(row=rowi, column=9, value=float(prof_ui or 0))
 
-        total_qty += int(qty or 0)
-        total_profit_uzs += float(profit_uzs or 0)
-        total_profit_ui  += float(prof_ui or 0)
+        c3 = sh.cell(row=rowi, column=3, value=float(buy_uzs or 0));    c3.number_format = fmt_ccy_base
+        c4 = sh.cell(row=rowi, column=4, value=float(sell_uzs or 0));   c4.number_format = fmt_ccy_base
+        c5 = sh.cell(row=rowi, column=5, value=int(qty or 0));          c5.number_format = fmt_int
+        c6 = sh.cell(row=rowi, column=6, value=float(profit_uzs or 0)); c6.number_format = fmt_ccy_base
+
+        c7 = sh.cell(row=rowi, column=7, value=float(buy_ui or 0));     c7.number_format = fmt_ccy_ui
+        c8 = sh.cell(row=rowi, column=8, value=float(sell_ui or 0));    c8.number_format = fmt_ccy_ui
+        c9 = sh.cell(row=rowi, column=9, value=float(prof_ui or 0));    c9.number_format = fmt_ccy_ui
+
         rowi += 1
 
-    # Totals row
-    sh.cell(row=rowi, column=2, value="TOTALS")
-    sh.cell(row=rowi, column=5, value=total_qty)
-    sh.cell(row=rowi, column=6, value=total_profit_uzs)
-    sh.cell(row=rowi, column=9, value=total_profit_ui)
+    last_row = rowi - 1
 
-    # Basic formatting
-    from openpyxl.styles import Font
-    header_row = start_row
-    for col in range(1, len(headers) + 1):
-        sh.cell(row=header_row, column=col).font = Font(bold=True)
-    for col in [2, 5, 6, 9]:
-        sh.cell(row=rowi, column=col).font = Font(bold=True)
+    sh.cell(row=rowi, column=2, value="TOTALS").font = Font(bold=True)
+    t_qty   = sh.cell(row=rowi, column=5, value=f"=SUM(E{first_row}:E{last_row})");  t_qty.number_format   = fmt_int
+    t_pB    = sh.cell(row=rowi, column=6, value=f"=SUM(F{first_row}:F{last_row})");  t_pB.number_format    = fmt_ccy_base
+    t_pU    = sh.cell(row=rowi, column=9, value=f"=SUM(I{first_row}:I{last_row})");  t_pU.number_format    = fmt_ccy_ui
 
-    # Autosize columns
-    from openpyxl.utils import get_column_letter
+    thin = Side(style="thin", color="DDDDDD")
+    rng = sh[f"A{start_row}:I{rowi}"]
+    for rw in rng:
+        for c in rw:
+            c.border = Border(top=thin, bottom=thin, left=thin, right=thin)
+
+    sh.conditional_formatting.add(
+        f"E{first_row}:E{last_row}",
+        CellIsRule(operator="lessThanOrEqual", formula=["5"],
+                   fill=PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid"))
+    )
+
     for col in range(1, len(headers) + 1):
         letter = get_column_letter(col)
         maxlen = 0
@@ -784,7 +860,7 @@ def export_excel():
             v = sh.cell(row=r, column=col).value
             vlen = len(str(v)) if v is not None else 0
             maxlen = max(maxlen, vlen)
-        sh.column_dimensions[letter].width = min(max(10, maxlen + 2), 40)
+        sh.column_dimensions[letter].width = min(max(10, maxlen + 2), 42)
 
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
@@ -793,7 +869,7 @@ def export_excel():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
-# 📦 Data backup (ZIP of CSVs)
+# 📦 Data backup (ZIP of CSVs, Postgres)
 @app.get("/admin/backup")
 def admin_backup():
     if not (is_logged_in() and is_admin_user()):
@@ -840,11 +916,11 @@ def admin_backup():
             "note": "Data-only backup (CSV per table). Schema ensured at startup.",
         }
         zf.writestr("metadata.json", json.dumps(meta, indent=2))
-        for t in tables:
+        for tname in tables:
             with conn.cursor() as c2:
                 s = io.StringIO()
-                c2.copy_expert(f'COPY (SELECT * FROM "{t}") TO STDOUT WITH CSV HEADER', s)
-                zf.writestr(f"{t}.csv", s.getvalue())
+                c2.copy_expert(f'COPY (SELECT * FROM "{tname}") TO STDOUT WITH CSV HEADER', s)
+                zf.writestr(f"{tname}.csv", s.getvalue())
 
     conn.close()
     buf.seek(0)
@@ -853,22 +929,38 @@ def admin_backup():
 
 
 # =========================
-# Prefs / small APIs
+# Prefs & small APIs
 # =========================
 @app.get("/api/rates")
 def api_rates():
-    base = (request.args.get("base") or get_curr()).upper()
-    base, rates = _derive_rates_from_usd(base)
-    return jsonify({"base": base, "rates": rates})
+    try:
+        base = (request.args.get("base") or get_curr()).upper()
+        base, rates = _derive_rates_from_usd(base)
+        return jsonify({"base": base, "rates": rates})
+    except Exception as e:
+        return jsonify({
+            "base": "USD",
+            "rates": {"USD": 1.0, "AED": 3.6725, "UZS": 12600.0},
+            "_note": "fallback",
+            "_error": str(e)
+        })
 
 @app.get("/api/geo")
 def api_geo():
+    # Always 200 so the UI doesn't break
+    if OFFLINE:
+        return jsonify({"country": "US", "languages": "en", "_note": "offline default"})
+
     try:
         r = requests.get("https://ipapi.co/json", timeout=6)
         r.raise_for_status()
-        return jsonify(r.json())
+        j = r.json()
+        if not isinstance(j, dict):
+            raise ValueError("bad geo json")
+        return jsonify(j)
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        # Fallback and keep status 200
+        return jsonify({"country": "US", "languages": "en", "_note": "fallback", "_error": str(e)})
 
 @app.post("/prefs")
 def set_prefs():
@@ -891,39 +983,52 @@ def set_currency():
 
 
 # =========================
-# Auth routes
+# Auth pages (hardened)
 # =========================
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = request.form["username"].strip()
-        password = request.form["password"]
-        if ADMIN_USERS.get(username) == password:
+        username = (request.form.get("username") or "").strip().casefold()
+        password = (request.form.get("password") or "").strip()
+
+        ok = ADMIN_USERS.get(username) == password
+        if ok:
             session["logged_in"] = True
             session["user"] = username
+            flash("Welcome back.", "success")
             return redirect(url_for("index"))
-        return render_template("login.html", error="Invalid credentials")
-    return render_template("login.html")
+
+        if app.debug:
+            app.logger.info(f"[login] failed for user='{username}'  known={list(ADMIN_USERS.keys())}")
+        flash("Invalid username or password.", "error")
+        return redirect(url_for("login"))
+
+    return render_template("login.html", APP_VERSION=get_version())
 
 @app.get("/logout")
 def logout():
     session.pop("logged_in", None)
     session.pop("user", None)
+    flash("You’ve been logged out.", "success")
+    return redirect(url_for("login"))
+
+@app.get("/forgot")
+def forgot_password():
+    return render_template("forgot.html", APP_VERSION=get_version())
+
+@app.post("/forgot")
+def forgot_password_post():
+    email = (request.form.get("email") or "").strip()
+    if not email:
+        flash("Please enter your email.", "error")
+        return redirect(url_for("forgot_password"))
+    # TODO: Implement email reset flow
+    flash("If that email exists, we’ve sent reset instructions.", "success")
     return redirect(url_for("login"))
 
 
-# in app.py
-from flask import request, jsonify
-
-@app.route('/forgot', methods=['POST'])
-def forgot():
-    email = (request.json or {}).get('email', '').strip()
-    # TODO: Look up user by email and send a real reset link
-    return jsonify({"ok": True, "message": "If this email is registered, a reset link will be sent."})
-
-
 # =========================
-# Local dev entry
+# Dev entry
 # =========================
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=True)
+    app.run(host="127.0.0.1", port=5000, debug=(ENV=="dev"))

@@ -1,23 +1,19 @@
 <!DOCTYPE html>
-<html lang="{{ USER_LANG }}">
+<html lang="{{ USER_LANG or 'en' }}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light dark" />
-  <title>{% block title %}{{ t("app_name") }}{% endblock %}</title>
+  <title>{% block title %}Jasurbek Inventory{% endblock %}</title>
 
-  <!-- Prevent theme flash: set data-theme + prepaint background BEFORE CSS loads -->
+  <!-- Theme prepaint (no flash) -->
   <script>
     (function () {
       try {
         var t = localStorage.getItem('vanta-theme');
-        if (!t) {
-          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        }
-        var root = document.documentElement;
-        root.setAttribute('data-theme', t);
-        // Prepaint background to avoid flash before CSS arrives
-        root.style.backgroundColor = (t === 'dark') ? '#0b1220' : '#f6f7fb';
+        if (!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.style.backgroundColor = (t === 'dark') ? '#0b1220' : '#f6f7fb';
       } catch (e) {}
     })();
   </script>
@@ -26,28 +22,41 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <!-- Icons -->
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+        crossorigin="anonymous" referrerpolicy="no-referrer">
+
+  <!-- App CSS -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ APP_VERSION }}">
 
-  <!-- Charts -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  {% set AUTH_PAGES = ['login','forgot_password','forgot_password_post'] %}
+  {% if request.endpoint not in AUTH_PAGES %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+  {% endif %}
 
   {% block head %}{% endblock %}
 </head>
-<body>
+<body class="{% if request.endpoint in AUTH_PAGES %}no-chrome{% endif %}">
+
+  {% if request.endpoint not in AUTH_PAGES %}
   <header class="topbar card container" role="banner">
     <div class="brand">
       <span class="cube" aria-hidden="true">&#x1F4E6;</span>
-      <strong>{{ t("app_name") }}</strong>
+      <strong>Jasurbek Inventory</strong>
       <span class="badge badge-version" title="Current build">{{ APP_VERSION }}</span>
     </div>
     <div class="actions-row">
-      <button id="themeToggle" class="btn btn-outline" type="button" title="{{ t('toggle_theme') }}">
-        {{ t('toggle_theme') }}
-      </button>
-      <a href="{{ url_for('logout') }}" class="btn btn-red">{{ t('logout') }}</a>
+      <button id="themeToggle" class="btn btn-outline" type="button" title="Toggle theme">Toggle theme</button>
+      <a href="{{ url_for('logout') }}" class="btn btn-red logout">Logout</a>
     </div>
   </header>
+  {% endif %}
 
+ {% if request.endpoint not in AUTH_PAGES %}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       <div class="flash-area container" role="status" aria-live="polite">
@@ -57,14 +66,18 @@
       </div>
     {% endif %}
   {% endwith %}
+{% endif %}
+
 
   <main class="container" role="main">
     {% block content %}{% endblock %}
   </main>
 
+  {% if request.endpoint not in AUTH_PAGES %}
   <footer class="footer container" role="contentinfo">
-    {{ t('made_with') }} — {{ t('version') }} {{ APP_VERSION }}
+    Made with ⚡ by Vanta — {{ APP_VERSION }}
   </footer>
+  {% endif %}
 
   <!-- Theme toggle -->
   <script>
@@ -75,7 +88,6 @@
         const root = document.documentElement;
         const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
         root.setAttribute('data-theme', next);
-        // Update prepaint background to keep transitions clean
         root.style.backgroundColor = (next === 'dark') ? '#0b1220' : '#f6f7fb';
         try { localStorage.setItem('vanta-theme', next); } catch (e) {}
         document.dispatchEvent(new CustomEvent('vanta-theme-change', { detail: { theme: next } }));

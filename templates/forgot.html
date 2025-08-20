@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Forgot Password — Jasurbek{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card glass">
+    <h1 class="auth-title">Forgot Password</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack">
+          {% for cat, msg in messages %}
+            <div class="flash {{ cat }}">{{ msg }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('forgot_password_post') }}" class="auth-form" novalidate>
+      <label class="field">
+        <span class="field-icon"><i class="fa-regular fa-envelope"></i></span>
+        <input type="email"
+               name="email"
+               placeholder="you@example.com"
+               autocomplete="email"
+               required
+               autofocus>
+      </label>
+
+      <button type="submit" class="btn btn-primary w-full">Send reset link</button>
+
+      <div class="auth-footer">
+        <a href="{{ url_for('login') }}">Back to login</a>
+        <span class="version">Version: {{ APP_VERSION }}</span>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

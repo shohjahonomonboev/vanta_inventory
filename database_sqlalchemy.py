@@ -1,20 +1,22 @@
+# database_sqlalchemy.py
 import os, time
 from pathlib import Path
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
 from sqlalchemy.exc import OperationalError
 
-# --- Normalize DB URL (fix old postgres:// scheme) ---
+# --- URL normalization (fix old postgres:// scheme) --------------------------
 def normalize_url(url: str | None) -> str | None:
     if not url:
         return None
     url = url.strip()
     if not url:
         return None
+    # Support old Heroku-style URLs
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+psycopg2://", 1)
     return url
 
-# Detect DB URL
+# Detect DB URL (envs: DATABASE_URL, POSTGRES_URL, DB_URL) --------------------
 _raw_url = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or os.getenv("DB_URL")
 DATABASE_URL = normalize_url(_raw_url)
 
@@ -29,34 +31,54 @@ else:
     else:
         print(f"DB: Using custom DB URL ({DATABASE_URL.split('://',1)[0]})")
 
-# --- Engine creation ---
+def is_sqlite() -> bool:
+    return DATABASE_URL.startswith("sqlite")
+
+def is_postgres() -> bool:
+    return DATABASE_URL.startswith("postgresql")
+
+# --- Engine creation ---------------------------------------------------------
 def make_engine():
     last_err = None
     for attempt in range(6):
         try:
             kwargs = {"pool_pre_ping": True}
-            if DATABASE_URL.startswith("postgresql"):
+            if is_postgres():
+                # Reasonable production-ish pool defaults for PG
                 kwargs.update(pool_recycle=1800, pool_size=5, max_overflow=10)
-            elif DATABASE_URL.startswith("sqlite"):
+            elif is_sqlite():
+                # Needed to allow access from multiple threads (Flask dev server etc.)
                 kwargs.update(connect_args={"check_same_thread": False})
+
             eng = create_engine(DATABASE_URL, **kwargs)
-            # sanity ping
+
+            # SQLite: enforce foreign keys on every new DB-API connection
+            if is_sqlite():
+                @event.listens_for(eng, "connect")
+                def _set_sqlite_pragma(dbapi_connection, connection_record):
+                    cur = dbapi_connection.cursor()
+                    cur.execute("PRAGMA foreign_keys=ON")
+                    cur.close()
+
+            # Sanity ping
             with eng.connect() as conn:
                 conn.execute(text("SELECT 1"))
             print(f"DB engine ready (attempt {attempt+1})")
             return eng
+
         except OperationalError as e:
             last_err = e
             wait = 2 ** attempt
             print(f"DB connect failed (attempt {attempt+1}), retrying in {wait}s...")
             time.sleep(wait)
+
     raise last_err
 
 engine = make_engine()
 
-# ---- Schema helpers ----
+# ---- Schema helpers ---------------------------------------------------------
 def _column_exists(conn, table: str, col: str) -> bool:
-    if DATABASE_URL.startswith("postgresql"):
+    if is_postgres():
         row = conn.execute(text("""
             SELECT 1
             FROM information_schema.columns
@@ -78,12 +100,11 @@ def _ensure_index(conn, index_name: str, table: str, column: str, unique: bool =
     uniq = "UNIQUE " if unique else ""
     conn.exec_driver_sql(f"CREATE {uniq}INDEX IF NOT EXISTS {index_name} ON {table}({column});")
 
-# --- Helpers ---
-def is_sqlite() -> bool:
-    return DATABASE_URL.startswith("sqlite")
-
 def _dedupe_inventory_names(conn):
-    """Merge duplicate inventory names into one row each."""
+    """
+    Merge duplicate inventory names into a single row (keep newest),
+    summing quantity and profit. Works on both Postgres & SQLite.
+    """
     dups = conn.execute(text("""
         SELECT name FROM inventory
         GROUP BY name
@@ -94,16 +115,26 @@ def _dedupe_inventory_names(conn):
 
     changed = 0
     for (dup_name,) in dups:
-        rows = conn.execute(text("""
-            SELECT id, buying_price, selling_price, quantity, profit, currency, created_at
-            FROM inventory
-            WHERE name = :n
-            ORDER BY created_at DESC NULLS LAST, id DESC
-        """), {"n": dup_name}).fetchall()
+        if is_postgres():
+            rows = conn.execute(text("""
+                SELECT id, buying_price, selling_price, quantity, profit, currency, created_at
+                FROM inventory
+                WHERE name = :n
+                ORDER BY created_at DESC NULLS LAST, id DESC
+            """), {"n": dup_name}).fetchall()
+        else:
+            # SQLite has no NULLS LAST; emulate with (created_at IS NULL)
+            rows = conn.execute(text("""
+                SELECT id, buying_price, selling_price, quantity, profit, currency, created_at
+                FROM inventory
+                WHERE name = :n
+                ORDER BY (created_at IS NULL), created_at DESC, id DESC
+            """), {"n": dup_name}).fetchall()
+
         if not rows:
             continue
-        keep_id = rows[0][0]
 
+        keep_id = rows[0][0]
         total_qty = sum(int(r[3] or 0) for r in rows)
         total_profit = sum(float(r[4] or 0.0) for r in rows)
 
@@ -119,9 +150,10 @@ def _dedupe_inventory_names(conn):
         """), {"n": dup_name, "id": keep_id})
 
         changed += 1
+
     return changed
 
-# --- Schema ---
+# --- Schema management -------------------------------------------------------
 _schema_checked = False
 
 def ensure_schema():
@@ -129,15 +161,14 @@ def ensure_schema():
     if _schema_checked:
         return
 
-    is_pg = DATABASE_URL.startswith("postgresql")
     stmts = []
 
-    # Enable foreign keys on SQLite
-    if not is_pg:
+    # Enable foreign keys for SQLite (also enforced on each connection via event)
+    if not is_postgres():
         stmts.append("PRAGMA foreign_keys = ON;")
 
-    # ---- Base tables (create-if-missing; do not alter existing columns here) ----
-    if not is_pg:
+    # Base tables (create if missing). Keep types simple and portable.
+    if not is_postgres():
         stmts += [
             """CREATE TABLE IF NOT EXISTS inventory (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,7 +178,8 @@ def ensure_schema():
                 quantity INTEGER NOT NULL DEFAULT 0,
                 profit REAL NOT NULL DEFAULT 0,
                 currency TEXT DEFAULT 'UZS',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );""",
             """CREATE TABLE IF NOT EXISTS sales (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,7 +206,8 @@ def ensure_schema():
                 quantity INTEGER NOT NULL DEFAULT 0,
                 profit NUMERIC(14,2) NOT NULL DEFAULT 0,
                 currency TEXT DEFAULT 'UZS',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );""",
             """CREATE TABLE IF NOT EXISTS sales (
                 id SERIAL PRIMARY KEY,
@@ -191,33 +224,24 @@ def ensure_schema():
             );""",
         ]
 
-    # ---- Apply schema + rolling upgrades ----
     with engine.begin() as conn:
-        # 1) Create base tables first
+        # 1) Create base objects
         for s in stmts:
             conn.exec_driver_sql(s)
 
-        # 2) Rolling column upgrades (add only if missing)
+        # 2) Rolling column upgrades (add if missing)
         _ensure_column(conn, "inventory", "category",   "TEXT")
         _ensure_column(conn, "inventory", "created_at", "TIMESTAMP")
         _ensure_column(conn, "inventory", "updated_at", "TIMESTAMP")
 
-        # 3) Backfill timestamps once (idempotent)
-        conn.exec_driver_sql(
-            "UPDATE inventory SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"
-        )
-        conn.exec_driver_sql(
-            "UPDATE inventory SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"
-        )
+        # 3) Backfill timestamps (idempotent)
+        conn.exec_driver_sql("UPDATE inventory SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
+        conn.exec_driver_sql("UPDATE inventory SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
 
-        # 4) On Postgres, ensure defaults so future INSERTs auto-fill
-        if DATABASE_URL.startswith("postgresql"):
-            conn.exec_driver_sql(
-                "ALTER TABLE inventory ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP"
-            )
-            conn.exec_driver_sql(
-                "ALTER TABLE inventory ALTER COLUMN updated_at SET DEFAULT CURRENT_TIMESTAMP"
-            )
+        # 4) On Postgres, ensure defaults for future inserts
+        if is_postgres():
+            conn.exec_driver_sql("ALTER TABLE inventory ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP")
+            conn.exec_driver_sql("ALTER TABLE inventory ALTER COLUMN updated_at SET DEFAULT CURRENT_TIMESTAMP")
 
         # 5) Drop legacy non-unique index (ignore errors)
         try:
@@ -225,12 +249,12 @@ def ensure_schema():
         except Exception:
             pass
 
-        # 6) Deduplicate names before unique index
+        # 6) Deduplicate names prior to unique index
         deduped = _dedupe_inventory_names(conn)
         if deduped:
             print(f"Schema: deduped {deduped} duplicate inventory name(s).")
 
-        # 7) Indices (idempotent)
+        # 7) Indices
         _ensure_index(conn, "idx_inventory_name_unique", "inventory", "name", unique=True)
         _ensure_index(conn, "idx_inventory_cat",  "inventory", "category")
         _ensure_index(conn, "idx_inventory_qty",  "inventory", "quantity")
@@ -239,7 +263,7 @@ def ensure_schema():
 
     _schema_checked = True
 
-# --- DB helpers ---
+# --- DB helpers --------------------------------------------------------------
 def db_all(sql, params=None):
     with engine.connect() as conn:
         result = conn.execute(text(sql), params or {})

@@ -1,35 +1,72 @@
-{% extends "base.html" %}
-{% block title %}Edit Item — Jasurbek{% endblock %}
+﻿{% extends "base.html" %}
+{% block title %}Edit Item &mdash; Jasurbek{% endblock %}
+
 {% block content %}
-<h1>Edit Item 🛠️</h1>
+<h1>Edit Item &#x1F6E0;&#xFE0F;</h1>
 <p class="subtitle">Vanta Inventory System</p>
 
-<form method="POST" class="form-col">
-  <input type="text" name="name" placeholder="Item Name" value="{{ item['name'] }}" required>
+<form method="POST" class="form-col card edit-form">
+  <!-- Keep hidden id so backend can use it if needed -->
+  <input type="hidden" name="id" value="{{ item[0] }}"/>
 
-  <!-- Show prices in current UI currency; they’ll be converted back to UZS on save -->
-  <input type="text" name="buying_price" data-money data-decimals="0"
-         placeholder="Buying Price ({{ CURRENCY }})"
-         value="{{ (item['buying_price'] | ccy) | money }}"
-         required>
+  <!-- item: [0]=id, [1]=name, [2]=buy, [3]=sell, [4]=quantity -->
 
-  <input type="text" name="selling_price" data-money data-decimals="0"
-         placeholder="Selling Price ({{ CURRENCY }})"
-         value="{{ (item['selling_price'] | ccy) | money }}"
-         required>
+  <label for="name">Item Name</label>
+  <input id="name" type="text" name="name" placeholder="Item Name" value="{{ item[1] }}" required autocomplete="off" />
 
-  <input type="number" name="quantity" placeholder="Quantity" value="{{ item['quantity'] }}" required>
-  <button type="submit">Update</button>
+  <!-- Show prices in current UI currency; converted back to UZS on save -->
+  <label for="buy">Buying Price ({{ CURRENCY }})</label>
+  <input
+    id="buy"
+    type="text"
+    name="buying_price"
+    data-money
+    data-decimals="0"
+    inputmode="numeric"
+    pattern="[\d,]*"
+    autocomplete="off"
+    placeholder="Buying Price ({{ CURRENCY }})"
+    value="{{ (item[2] | ccy) | fmtmoney }}"   {# buying #}
+    value="{{ (item[3] | ccy) | fmtmoney }}"   {# selling #}
+    required />
+
+  <label for="sell">Selling Price ({{ CURRENCY }})</label>
+  <input
+    id="sell"
+    type="text"
+    name="selling_price"
+    data-money
+    data-decimals="0"
+    inputmode="numeric"
+    pattern="[\d,]*"
+    autocomplete="off"
+    placeholder="Selling Price ({{ CURRENCY }})"
+    value="{{ (item[3] | ccy) | money }}"
+    required />
+
+  <label for="qty">Quantity</label>
+  <input id="qty" type="number" name="quantity" placeholder="Quantity" value="{{ item[4] }}" min="0" required />
+
+  <div class="form-row form-actions">
+    <button type="submit" class="btn btn-primary" id="saveBtn">Update</button>
+    <a href="{{ url_for('index') }}" class="btn btn-outline">Cancel</a>
+  </div>
 </form>
 
-<!-- Live input money formatter (same as index.html) -->
+<!-- Live input money formatter (unchanged logic; just scoped) -->
 <script>
 (function () {
-  const inputs = document.querySelectorAll("[data-money]");
-  function formatMoney(raw){ const d=String(raw||"").replace(/[^\d]/g,""); return d?d.replace(/\B(?=(\d{3})+(?!\d))/g,","):""; }
+  const form = document.currentScript.closest('form');
+  const inputs = form.querySelectorAll("[data-money]");
+
+  function formatMoney(raw){
+    const d = String(raw||"").replace(/[^\d]/g,"");
+    return d ? d.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : "";
+  }
   function unformatMoney(s){ return String(s||"").replace(/,/g,""); }
+
   inputs.forEach(inp=>{
-    if(inp.value) inp.value = formatMoney(inp.value);
+    if (inp.value) inp.value = formatMoney(inp.value);
     inp.addEventListener("input", ()=>{
       const start = inp.selectionStart||0, before = inp.value;
       inp.value = formatMoney(before);
@@ -38,9 +75,11 @@
       try{ inp.setSelectionRange(pos,pos); }catch(e){}
     });
     inp.addEventListener("blur", ()=>{ inp.value = formatMoney(inp.value); });
-    if(inp.form){
-      inp.form.addEventListener("submit", ()=>{ inp.value = unformatMoney(inp.value); });
-    }
+  });
+
+  form.addEventListener("submit", ()=>{
+    document.getElementById('saveBtn')?.setAttribute('disabled','disabled');
+    inputs.forEach(inp => inp.value = unformatMoney(inp.value));
   });
 })();
 </script>
