@@ -63,6 +63,14 @@ I18N = {
         "stock_tracker_label": "Stock Tracker",
         "revenue_7d_title": "Revenue — Last 7 Days",
         "daily_revenue_label": "Daily Revenue",
+
+        # NEW — For Aurora layout
+        "sold_items": "Sold Items",
+        "sold_items_sub": "History of items sold",
+        "filter_sort": "Filter & Sort",
+        "prefs": "Preferences",
+        "prefs_sub": "Choose your language and currency",
+        "no_data": "No data available",
     },
 
     "uz": {
@@ -129,6 +137,14 @@ I18N = {
         "stock_tracker_label": "Zaxira dinamikasi",
         "revenue_7d_title": "Oxirgi 7 kun — Daromad",
         "daily_revenue_label": "Kundalik daromad",
+
+        # NEW — For Aurora layout
+        "sold_items": "Sotilgan mahsulotlar",
+        "sold_items_sub": "Sotilgan mahsulotlar tarixi",
+        "filter_sort": "Filtr va Saralash",
+        "prefs": "Sozlamalar",
+        "prefs_sub": "Til va valyutani tanlang",
+        "no_data": "Ma'lumot mavjud emas",
     }
 }
 

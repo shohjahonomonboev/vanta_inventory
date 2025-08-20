@@ -46,11 +46,11 @@
 </head>
 <body>
   <header class="topbar card container">
-    <div class="brand">
-      <span class="cube">📦</span>
-      <strong>{{ t("app_name") }}</strong>
-      <span class="muted">v{{ APP_VERSION }}</span>
-    </div>
+  <div class="brand">
+  <span class="cube">&#x1F4E6;</span>
+  <strong>{{ t("app_name") }}</strong>
+  <span class="badge badge-version" title="Current build">{{ APP_VERSION }}</span>
+</div>
     <div class="actions-row">
       <button id="themeToggle" class="btn btn-outline" title="{{ t('toggle_theme') }}">{{ t('toggle_theme') }}</button>
       <a href="{{ url_for('logout') }}" class="btn btn-red">{{ t('logout') }}</a>

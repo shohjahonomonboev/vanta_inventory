@@ -1,29 +1,30 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block title %}{{ t("app_name") }}{% endblock %}
 {% block content %}
 
-<div class="logo-container">
-  <img src="{{ url_for('static', filename='jasurbek_logo.png') }}" class="logo" alt="Jasurbek Logo">
+<!-- Brand badge (optional) -->
+<div class="logo-container" style="text-align:center;margin-bottom:8px;">
+  <img src="{{ url_for('static', filename='jasurbek_logo.png') }}" class="logo" alt="Jasurbek Logo" style="max-height:64px;">
 </div>
 
 <h1>{{ t("app_name") }}</h1>
-<p class="subtitle">Welcome back, Commander.</p>
+<p class="subtitle">{{ t("welcome_back") }}</p>
 
 <!-- KPIs -->
 <div class="kpis">
   <div class="kpi kpi-green">
-    <strong>{{ t("todays_revenue") }}</strong><br>
+    <strong>{{ t("todays_revenue") }}</strong>
     {{ today_revenue | ccy | fmtmoney }}
   </div>
   <div class="kpi kpi-blue">
-    <strong>{{ t("todays_profit") }}</strong><br>
+    <strong>{{ t("todays_profit") }}</strong>
     {{ today_profit | ccy | fmtmoney }}
   </div>
 </div>
 
 <!-- Sell Item -->
 <h2>{{ t("sell_item") }}</h2>
-<form action="{{ url_for('sell_item') }}" method="POST" class="form-row card">
+<form action="{{ url_for('sell_item') }}" method="POST" class="form-row card" style="padding:12px;">
   <select name="item_id" required id="sell-item-select" aria-label="{{ t('item') }}">
     {% for item in inventory %}
       {# item: (id, name, buy, sell, qty, profit, currency) #}
@@ -58,59 +59,63 @@
   })();
 </script>
 
-<!-- Add Item -->
-<h2 class="add-item-title">{{ t("add_item") }}</h2>
-<p class="hint">
-  {{ t("prices_in_ui_currency") if t("prices_in_ui_currency") else "Prices you enter are in" }}
-  <strong>{{ CURRENCY }}</strong>, stored internally in <strong>UZS</strong>.
-</p>
+<!-- Add Item (with tooltip) -->
+<h2 class="add-item-title">
+  {{ t("add_item") }}
+  <span class="info-badge" tabindex="0" aria-label="Info">i</span>
+  <span class="tooltip-box">
+    {{ t("prices_in_ui_currency") if t("prices_in_ui_currency") else "Prices you enter are in" }}
+    <strong>{{ CURRENCY }}</strong>. They’re stored internally in <strong>UZS</strong>.
+  </span>
+</h2>
 
-<form action="{{ url_for('add_item') }}" method="POST" class="form-row card">
+<form action="{{ url_for('add_item') }}" method="POST" class="form-row card" style="padding:12px;">
   <input type="text" name="name" placeholder="{{ t('item') }}" required>
-  <input type="text" name="buying_price"  data-money data-decimals="0" placeholder="{{ t('buy') }}" required>
-  <input type="text" name="selling_price" data-money data-decimals="0" placeholder="{{ t('sell') }}" required>
-  <input type="number" name="quantity" placeholder="{{ t('quantity') }}" required>
+  <input type="text" name="buying_price"  data-money data-decimals="0" placeholder="{{ t('buy') }} ({{ CURRENCY }})" required>
+  <input type="text" name="selling_price" data-money data-decimals="0" placeholder="{{ t('sell') }} ({{ CURRENCY }})" required>
+  <input type="number" name="quantity" placeholder="{{ t('quantity') }}" min="1" required>
   <button type="submit">{{ t('add') }}</button>
 </form>
 
 <!-- Language & Currency Panel -->
-<div class="prefs-card">
+<div class="prefs-card card" style="padding:14px;margin-top:8px;">
   <h3 class="prefs-title">{{ t("lang_curr") }}</h3>
 
-  <!-- Language form -->
-  <form method="POST" action="{{ url_for('set_prefs') }}" class="prefs-form" id="lang-form">
-    <label for="lang-select">{{ t("language") }}</label>
-    <select name="lang" id="lang-select">
-      <option value="en" {{ 'selected' if USER_LANG=='en' else '' }}>English</option>
-      <option value="uz" {{ 'selected' if USER_LANG=='uz' else '' }}>Uzbek</option>
-    </select>
-    <div class="prefs-actions">
-      <button type="submit">{{ t("save") }}</button>
-    </div>
-  </form>
+  <div class="form-row" style="gap:16px;">
+    <!-- Language -->
+    <form method="POST" action="{{ url_for('set_prefs') }}" class="prefs-form" id="lang-form" style="display:flex;gap:8px;align-items:center;">
+      <label for="lang-select">{{ t("language") }}</label>
+      <select name="lang" id="lang-select">
+        <option value="en" {{ 'selected' if USER_LANG=='en' else '' }}>English</option>
+        <option value="uz" {{ 'selected' if USER_LANG=='uz' else '' }}>Uzbek</option>
+      </select>
+      <div class="prefs-actions">
+        <button type="submit">{{ t("save") }}</button>
+      </div>
+    </form>
 
-  <!-- Currency form -->
-  <form action="{{ url_for('set_currency') }}" method="POST" class="prefs-form" id="currency-form">
-    <label for="currency-select">{{ t("currency") }}</label>
-    <select name="currency" id="currency-select">
-      <option value="USD" {{ 'selected' if CURRENCY=='USD' else '' }}>USD ($)</option>
-      <option value="AED" {{ 'selected' if CURRENCY=='AED' else '' }}>AED (د.إ)</option>
-      <option value="UZS" {{ 'selected' if CURRENCY=='UZS' else '' }}>UZS (so'm)</option>
-    </select>
-    <div class="prefs-actions">
-      <button type="submit">{{ t("save") }}</button>
-      <button type="button" id="auto-detect">{{ t("auto_detect") }}</button>
-    </div>
-  </form>
+    <!-- Currency -->
+    <form action="{{ url_for('set_currency') }}" method="POST" class="prefs-form" id="currency-form" style="display:flex;gap:8px;align-items:center;">
+      <label for="currency-select">{{ t("currency") }}</label>
+      <select name="currency" id="currency-select">
+        <option value="USD" {{ 'selected' if CURRENCY=='USD' else '' }}>USD ($)</option>
+        <option value="AED" {{ 'selected' if CURRENCY=='AED' else '' }}>AED (د.إ)</option>
+        <option value="UZS" {{ 'selected' if CURRENCY=='UZS' else '' }}>UZS (so'm)</option>
+      </select>
+      <div class="prefs-actions">
+        <button type="submit">{{ t("save") }}</button>
+        <button type="button" id="auto-detect">{{ t("auto_detect") }}</button>
+      </div>
+    </form>
+  </div>
 
-  <!-- Server-rendered live FX -->
-  <small>
+  <small style="display:block;margin-top:8px;">
     1 USD = {{ usd_to_aed | round(2) }} AED | {{ usd_to_uzs | round(0) }} UZS | 1.00 USD
   </small>
 </div>
 
-<!-- Auto-detect fills both selects; you can hit Save afterwards -->
 <script>
+  // Auto-detect fills both selects; hit Save afterwards
   document.getElementById('auto-detect')?.addEventListener('click', async () => {
     try {
       const r = await fetch('/api/geo');
@@ -126,8 +131,9 @@
 
 <!-- Filters -->
 <h2 class="filters-title">{{ t("filters") }}</h2>
+<p class="hint">{{ t("low_stock_hint") }} {{ t("high_profit_hint") }}</p>
 
-<form method="GET" action="{{ url_for('index') }}" class="form-row card">
+<form method="GET" action="{{ url_for('index') }}" class="form-row card" style="padding:12px;">
   <input type="text" name="search" placeholder="{{ t('search_item') }}..." value="{{ search_query }}">
   <select name="filter">
     <option value="">{{ t('filter') }} — </option>
@@ -141,12 +147,11 @@
 
 <!-- Inventory Table -->
 <h2>{{ t("inventory") }}</h2>
-
 <div class="table-wrap">
   {% set q = request.args.get('search','') %}
   {% set f = request.args.get('filter','') %}
 
-  <div class="toolbar">
+  <div class="toolbar" style="padding:10px;">
     <button id="filterBtn" class="btn" aria-expanded="false" aria-haspopup="true" aria-controls="filterMenu">
       Filter / Sort
     </button>
@@ -168,10 +173,10 @@
     .toolbar { position: relative; display:flex; gap:8px; align-items:center; margin-bottom:10px; }
     .menu.hidden { display:none; }
     #filterMenu { position:absolute; top:100%; left:0; margin-top:6px; z-index:5; padding:8px;
-      border:1px solid #e5e7eb; border-radius:10px; background:#fff; box-shadow:0 8px 24px rgba(0,0,0,0.08); }
+      border:1px solid var(--border); border-radius:10px; background:var(--card); box-shadow:0 8px 24px rgba(0,0,0,0.08); }
     #filterMenu .menu-item { display:block; padding:8px 12px; text-decoration:none; color:inherit; }
-    #filterMenu .menu-item:hover { background:#f3f4f6; }
-    #filterMenu .menu-sep { margin:6px 0; border:none; border-top:1px solid #eee; }
+    #filterMenu .menu-item:hover { background:rgba(0,0,0,.06); }
+    #filterMenu .menu-sep { margin:6px 0; border:none; border-top:1px solid var(--border); }
   </style>
 
   <script>
@@ -233,8 +238,8 @@
           <td data-col="price" data-label="{{ t('sell') }} ({{ CURRENCY }})">{{ it[3] | ccy | fmtmoney }}</td>
           <td data-label="{{ t('profit') }} ({{ CURRENCY }})">{{ row_profit | ccy | fmtmoney }}</td>
           <td class="actions">
-            <a href="{{ url_for('edit_item', item_id=it[0]) }}">✏️</a>
-            <a href="{{ url_for('delete_item', item_id=it[0]) }}" onclick="return confirm('Delete item?')">❌</a>
+            <a href="{{ url_for('edit_item', item_id=it[0]) }}" title="Edit">&#9998;</a>
+            <a href="{{ url_for('delete_item', item_id=it[0]) }}" onclick="return confirm('Delete item?')" title="Delete">&#10060;</a>
           </td>
         </tr>
       {% endfor %}
@@ -242,6 +247,7 @@
   </table>
 </div>
 
+<!-- Sold Items (today) -->
 <h2 class="mt-6">Sold Items</h2>
 <p class="subtitle">Return puts the quantity back into Inventory and removes this sale from today.</p>
 
@@ -267,10 +273,10 @@
           <td>{{ s[5] | ccy | fmtmoney }}</td>
           <td class="actions">
             <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
-              <button class="btn btn-icon" title="Return">↩</button>
+              <button class="btn btn-icon" title="Return">&#8617;</button>
             </form>
             <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline" onsubmit="return confirm('Delete sale record?')">
-              <button class="btn btn-icon">🗑</button>
+              <button class="btn btn-icon" title="Delete">&#128465;</button>
             </form>
           </td>
         </tr>
@@ -280,7 +286,6 @@
     </tbody>
   </table>
 </div>
-
 
 <!-- Insights -->
 <h2>{{ t("insights") }}</h2>
@@ -330,9 +335,9 @@
       const el = document.getElementById('topProfitChart'); if(!el) return;
       const ctx = el.getContext('2d');
       new Chart(ctx,{ type:'bar', data:{ labels: {{ top_profit_labels|tojson }}, datasets:[{
-        label:'Top 5 Profitable Items', data: {{ top_profit_values|tojson }},
+        label:'{{ t("top_profit_label") }}', data: {{ top_profit_values|tojson }},
         backgroundColor: makeGradient(ctx, primary, 'rgba(96,165,250,.25)'), borderRadius: 10
-      }]}, options: baseOptions('Top 5 Profitable Items') });
+      }]}, options: baseOptions('{{ t("top_profit_title") }}') });
     })();
     {% endif %}
 
@@ -341,9 +346,9 @@
       const el = document.getElementById('lowStockChart'); if(!el) return;
       const ctx = el.getContext('2d');
       new Chart(ctx,{ type:'bar', data:{ labels: {{ low_stock_labels|tojson }}, datasets:[{
-        label:'Lowest Stock (5)', data: {{ low_stock_values|tojson }},
+        label:'{{ t("low_stock_label") }}', data: {{ low_stock_values|tojson }},
         backgroundColor: makeGradient(ctx, cyan, 'rgba(34,211,238,.25)'), borderRadius: 10
-      }]}, options: baseOptions('Lowest Stock (5)') });
+      }]}, options: baseOptions('{{ t("low_stock_title") }}') });
     })();
     {% endif %}
 
@@ -351,20 +356,20 @@
       const el = document.getElementById('stockTrackerChart'); if(!el) return;
       const ctx = el.getContext('2d');
       new Chart(ctx,{ type:'line', data:{ labels: {{ stock_labels|tojson }}, datasets:[{
-        label:'Stock Tracker', data: {{ stock_values|tojson }}, tension:.35, fill:true,
+        label:'{{ t("stock_tracker_label") }}', data: {{ stock_values|tojson }}, tension:.35, fill:true,
         backgroundColor: makeGradient(ctx, 'rgba(96,165,250,.25)', 'rgba(96,165,250,.05)'),
         borderColor: css('--primary'), pointRadius: 2
-      }]}, options: baseOptions('Stock Tracker') });
+      }]}, options: baseOptions('{{ t("stock_tracker_title") }}') });
     })();
 
     (function(){
       const el = document.getElementById('salesChart'); if(!el) return;
       const ctx = el.getContext('2d');
       new Chart(ctx,{ type:'line', data:{ labels: {{ sales_labels|tojson }}, datasets:[{
-        label:`Daily Revenue (${currency})`, data: {{ sales_values|tojson }}, tension:.35, fill:true,
+        label:'{{ t("daily_revenue_label") }} ({{ CURRENCY }})', data: {{ sales_values|tojson }}, tension:.35, fill:true,
         backgroundColor: makeGradient(ctx, 'rgba(34,197,94,.20)', 'rgba(34,197,94,.05)'),
         borderColor: css('--green'), pointRadius: 2
-      }]}, options: baseOptions('Revenue — Last 7 Days') });
+      }]}, options: baseOptions('{{ t("revenue_7d_title") }}') });
     })();
   }
 
@@ -403,13 +408,13 @@
 <!-- Export & Backup -->
 <h2 class="export-title">{{ t("export_backup") }}</h2>
 <p class="hint">
-  <strong>Export Excel</strong> downloads your current inventory.
-  <strong>Backup DB</strong> creates a ZIP with CSVs of your tables.
+  <strong>{{ t("download_excel") }}</strong> — export your current inventory.  
+  <strong>{{ t("backup_now") }}</strong> — create a ZIP with CSVs of your tables.
 </p>
 
-<div class="form-row card">
-  <a href="{{ url_for('export_excel') }}" class="btn btn-green">📊 {{ t("export_excel") }}</a>
-  <a href="{{ url_for('admin_backup') }}" class="btn">💾 {{ t("backup_db") }}</a>
+<div class="form-row card" style="padding:12px;">
+  <a href="{{ url_for('export_excel') }}" class="btn btn-green">&#128202; {{ t("export_excel") }}</a>
+  <a href="{{ url_for('admin_backup') }}" class="btn">&#128190; {{ t("backup_db") }}</a>
 </div>
 
 {% endblock %}
