@@ -1,19 +1,24 @@
-# --- Core web framework ---
+
+---
+
+# requirements.txt (final)
+
+```txt
 Flask==3.0.3
+Jinja2==3.1.4
+Werkzeug==3.0.3
+itsdangerous==2.2.0
+click==8.1.7
 
-# --- Database / ORM ---
 SQLAlchemy==2.0.32
-psycopg2-binary==2.9.9    # Needed for Postgres and /admin/backup; safe to keep even if using SQLite
+psycopg2-binary==2.9.9
 
-# --- HTTP / Utilities ---
 requests==2.32.3
-
-# --- Excel export ---
-openpyxl==3.1.5
-
-# --- Optional but recommended (nice currency formatting) ---
 Babel==2.15.0
 
-# --- Production servers (use gunicorn on Linux PaaS; waitress handy on Windows local) ---
-gunicorn==22.0.0
-waitress==3.0.0
+openpyxl==3.1.5
+
+# Servers
+gunicorn==22.0.0     # Linux/server deploy (Render)
+waitress==3.0.0      # Windows local
+

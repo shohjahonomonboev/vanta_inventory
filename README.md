@@ -38,3 +38,39 @@ python currency_converter.py --list
 - Move fetching into a Flask route `/rates` with caching.
 - Add a front-end dropdown for currencies; convert prices dynamically.
 - Optionally switch to a provider with hourly updates.
+
+
+# Vanta Inventory
+
+Flask app for simple stock & sales with dual-currency display, Excel export, and Postgres/SQLite storage.
+
+## Features
+- Add / Sell / Return / Edit / Delete items
+- Today’s revenue & profit + 7-day revenue
+- Currency helpers (USD/AED/UZS) with cached FX (offline-safe)
+- Excel export (DB currency + UI currency) via `openpyxl`
+- Postgres ZIP backup (CSV per table)
+- Auth via env-configurable admin users (case-insensitive)
+- Health endpoint: `GET /__health`
+
+---
+
+## Quick Start (Windows / local)
+
+```powershell
+# 1) Create & activate venv
+python -m venv .venv
+. .\.venv\Scripts\Activate.ps1
+
+# 2) Install deps
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 3) Set env (PowerShell)
+$env:SECRET_KEY = "dev-key-change"
+$env:ADMIN_USERS = "vanta:beastmode,jasur:jasur2025"
+# optional: work offline for FX/Geo
+# $env:OFFLINE = "1"
+
+# 4) Run (Windows-friendly server)
+waitress-serve --listen=127.0.0.1:5000 app:app

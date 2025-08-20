@@ -378,22 +378,29 @@ def index():
         }
         sort_by, direction = mapping.get(sort_param, (sort_by, direction))
 
-    # ----- data -----
+       # ----- data -----
     inventory = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
     using_sqlite = db.DATABASE_URL.startswith("sqlite")
 
-    # Today revenue/profit
+    # --- Today revenue/profit ---
     if using_sqlite:
         row = db.db_one("""
-            SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
-            FROM sales WHERE DATE(sold_at)=DATE('now','localtime')
+            SELECT
+              COALESCE(SUM(qty * sell_price), 0),
+              COALESCE(SUM(profit), 0)
+            FROM sales
+            WHERE DATE(sold_at, 'localtime') = DATE('now','localtime')
         """)
     else:
         row = db.db_one("""
-            SELECT COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
-            FROM sales s WHERE DATE(s.sold_at)=CURRENT_DATE
+            SELECT
+              COALESCE(SUM(qty * sell_price), 0),
+              COALESCE(SUM(profit), 0)
+            FROM sales s
+            WHERE DATE(s.sold_at) = CURRENT_DATE
         """)
-    today_revenue, today_profit = (row[0] if row else 0), (row[1] if row else 0)
+    today_revenue = row[0] if row else 0
+    today_profit  = row[1] if row else 0
 
     # Filtering
     if search_query:
@@ -423,7 +430,7 @@ def index():
     top_profit_items = sorted(inventory, key=lambda x: (x[5] is None, x[5]), reverse=True)[:5]
     low_stock_items  = sorted(inventory, key=lambda x: (x[4] is None, x[4]))[:5]
 
-    # Last 7 days revenue
+    # --- Last 7 days revenue ---
     if using_sqlite:
         rows = db.db_all("""
             WITH days AS (
@@ -436,16 +443,27 @@ def index():
               UNION ALL SELECT DATE('now','localtime')
             )
             SELECT d AS day,
-                   COALESCE((SELECT SUM(qty*sell_price) FROM sales s WHERE DATE(s.sold_at)=d),0) AS revenue
+                   COALESCE((
+                     SELECT SUM(qty*sell_price)
+                     FROM sales s
+                     WHERE DATE(s.sold_at,'localtime') = d
+                   ),0) AS revenue
             FROM days
+            ORDER BY d
         """)
     else:
         rows = db.db_all("""
             WITH days AS (
-              SELECT generate_series(current_date - interval '6 day', current_date, interval '1 day')::date AS d
+              SELECT generate_series(current_date - interval '6 day',
+                                     current_date,
+                                     interval '1 day')::date AS d
             )
             SELECT d AS day,
-                   COALESCE((SELECT SUM(qty*sell_price) FROM sales s WHERE DATE(s.sold_at)=d),0) AS revenue
+                   COALESCE((
+                     SELECT SUM(qty*sell_price)
+                     FROM sales s
+                     WHERE DATE(s.sold_at) = d
+                   ),0) AS revenue
             FROM days
             ORDER BY d
         """)
@@ -457,7 +475,7 @@ def index():
     stock_labels = [it[1] for it in inventory]
     stock_values = [nz_int(it[4]) for it in inventory]
 
-    # Sold Items — Today (JOIN for item name)
+    # --- Sold Items — Today (JOIN for item name) ---
     if using_sqlite:
         sales_today = db.db_all("""
             SELECT s.id,
@@ -469,7 +487,7 @@ def index():
                    s.sold_at    AS sold_at
             FROM sales s
             JOIN inventory i ON i.id = s.item_id
-            WHERE DATE(s.sold_at) = DATE('now','localtime')
+            WHERE DATE(s.sold_at,'localtime') = DATE('now','localtime')
             ORDER BY s.sold_at DESC
         """)
     else:
@@ -522,6 +540,7 @@ def index():
         usd_to_aed=usd_to_aed,
         usd_to_uzs=usd_to_uzs,
     )
+
 
 
 # ➕ Add Item (UPSERT by name)
@@ -1062,6 +1081,25 @@ def __admin_wipe():
         flash(f"Failed to wipe DB: {e}", "error")
     return redirect(url_for("index"))
 
+@app.get("/__debug_sales_today")
+def __debug_sales_today():
+    using_sqlite = db.DATABASE_URL.startswith("sqlite")
+    if using_sqlite:
+        q = """
+        SELECT COUNT(*), COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
+        FROM sales
+        WHERE sold_at >= DATETIME('now','start of day')
+          AND sold_at <  DATETIME('now','start of day','+1 day')
+        """
+    else:
+        q = """
+        SELECT COUNT(*), COALESCE(SUM(qty*sell_price),0), COALESCE(SUM(profit),0)
+        FROM sales
+        WHERE sold_at >= CURRENT_DATE
+          AND sold_at <  CURRENT_DATE + INTERVAL '1 day'
+        """
+    row = db.db_one(q)
+    return {"rows": row[0], "revenue_base": float(row[1] or 0), "profit_base": float(row[2] or 0)}
 
 
 # =========================
