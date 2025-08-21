@@ -1,3 +1,4 @@
+# i18n.py
 I18N = {
     "en": {
         # App / Header / Footer
@@ -43,6 +44,13 @@ I18N = {
         "high_profit": "High Profit",
         "low_stock_hint": "Low Stock shows items with ≤ 5 units.",
         "high_profit_hint": "High Profit surfaces the most profitable items.",
+        "sort_name_asc": "A → Z (Name)",
+        "sort_name_desc": "Z → A (Name)",
+        "sort_qty_desc": "Quantity: High → Low",
+        "sort_qty_asc": "Quantity: Low → High",
+        "sort_price_desc": "Price: High → Low",
+        "sort_price_asc": "Price: Low → High",
+        "reset_sort": "Reset sort",
 
         # KPIs / Insights / Charts
         "todays_revenue": "Today's Revenue",
@@ -56,6 +64,16 @@ I18N = {
         "stock_tracker_label": "Stock Tracker",
         "revenue_7d_title": "Revenue — Last 7 Days",
         "daily_revenue_label": "Daily Revenue",
+
+        # Stock overview (chart block)
+        "stock_overview_title": "Stock On Hand — Overview",
+        "stock_overview_hint": "Bars show quantity per item; the line shows total stock value. Use search, sort, and Top N to focus. Scroll to zoom, drag to pan. Double-click to reset.",
+        "search_items": "Search items…",
+        "sort_label": "Sort",
+        "top_n": "Top N",
+        "hide_zero_qty": "Hide zero qty",
+        "reset_view": "Reset view",
+        "stock_value": "Stock Value",
 
         # Sold Items
         "sold_items": "Sold Items",
@@ -95,19 +113,34 @@ I18N = {
         "error": "Error",
         "info": "Info",
         "warning": "Warning",
+        "stock_overview_title":"Stock On Hand — Overview",
+"stock_overview_hint":"Bars show quantity; the line shows total stock value. Scroll to zoom, drag to pan, double-click to reset.",
+"search_items":"Search items…",
+"sort":"Sort",
+"sort_qty_high_low":"Qty (high→low)",
+"sort_value_high_low":"Value (high→low)",
+"sort_profit_high_low":"Profit/unit (high→low)",
+"sort_name_az":"Name (A→Z)",
+"top_n":"Top N",
+"hide_zero_qty":"Hide zero qty",
+"reset_view":"Reset view",
+"quantity":"Quantity",
+"stock_value":"Stock Value",
+"stock_value": "Stock value",   # en
+
     },
 
     "uz": {
         # App / Header / Footer
         "app_name": "Jasurbek do'koni",
-        "toggle_theme": "Oq va Qora tema",
+        "toggle_theme": "Oq / Qora tema",
         "logout": "Chiqish",
         "made_with": "Shohjahon tomonidan ⚡ bajarilgan",
         "version": "Versiya",
         "welcome_back": "Xush kelibsiz, Komandir.",
 
         # Preferences panel
-        "lang_curr": "Til & Valyuta",
+        "lang_curr": "Til va Valyuta",
         "language": "Til",
         "currency": "Valyuta",
         "save": "Saqlash",
@@ -141,6 +174,13 @@ I18N = {
         "high_profit": "Yuqori foyda",
         "low_stock_hint": "Kam zaxira — ≤ 5 dona mahsulotlar.",
         "high_profit_hint": "Yuqori foyda eng foydali mahsulotlarni ko‘rsatadi.",
+        "sort_name_asc": "A → Z (Nomi bo‘yicha)",
+        "sort_name_desc": "Z → A (Nomi bo‘yicha)",
+        "sort_qty_desc": "Miqdor: Ko‘p → Kam",
+        "sort_qty_asc": "Miqdor: Kam → Ko‘p",
+        "sort_price_desc": "Narx: Yuqori → Past",
+        "sort_price_asc": "Narx: Past → Yuqori",
+        "reset_sort": "Saralashni tiklash",
 
         # KPIs / Insights / Charts
         "todays_revenue": "Bugungi daromad",
@@ -154,6 +194,16 @@ I18N = {
         "stock_tracker_label": "Zaxira dinamikasi",
         "revenue_7d_title": "Oxirgi 7 kun — Daromad",
         "daily_revenue_label": "Kundalik daromad",
+
+        # Stock overview (chart block)
+        "stock_overview_title": "Zaxira — Umumiy ko‘rinish",
+        "stock_overview_hint": "Shtablar har bir mahsulot bo‘yicha miqdorni ko‘rsatadi; chiziq umumiy zaxira qiymatini ko‘rsatadi. Diqqatni jamlash uchun qidiruv, saralash va Top N dan foydalaning. Yaqinlashtirish uchun aylantiring, siljitish uchun torting. Tiklash uchun ikki marta bosing.",
+        "search_items": "Mahsulot qidirish…",
+        "sort_label": "Saralash",
+        "top_n": "Top N",
+        "hide_zero_qty": "Nol miqdorni yashirish",
+        "reset_view": "Ko‘rinishni tiklash",
+        "stock_value": "Zaxira qiymati",
 
         # Sold Items
         "sold_items": "Bugun sotilganlar",
@@ -193,8 +243,25 @@ I18N = {
         "error": "Xatolik",
         "info": "Ma’lumot",
         "warning": "Ogohlantirish",
+
+"stock_overview_title":"Ombordagi zaxira — Umumiy ko‘rinish",
+"stock_overview_hint":"Ustunlar — miqdor; chiziq — umumiy zaxira qiymati. Zoom uchun aylantiring, surish uchun torting, tiklash uchun ikki marta bosing.",
+"search_items":"Mahsulot qidirish…",
+"sort":"Saralash",
+"sort_qty_high_low":"Miqdor (ko‘p→kam)",
+"sort_value_high_low":"Qiymat (yuqori→past)",
+"sort_profit_high_low":"Foyda/birlik (yuqori→past)",
+"sort_name_az":"Nomi (A→Z)",
+"top_n":"Top N",
+"hide_zero_qty":"Nol miqdorni yashirish",
+"reset_view":"Ko‘rinishni tiklash",
+"quantity":"Miqdor",
+"stock_value":"Zaxira qiymati",
+"stock_value": "Zaxira qiymati",  # uz
+
     }
 }
 
-def t(key, lang="en"):
-    return I18N.get(lang, I18N["en"]).get(key, key)
+
+def t(key: str, lang: str = "en") -> str:
+    return I18N.get(lang, I18N["en"]).get(key, I18N["en"].get(key, key))

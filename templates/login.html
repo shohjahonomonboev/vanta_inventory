@@ -1,9 +1,9 @@
 ﻿{% extends "base.html" %}
-{% block title %}Admin Login — Jasurbek{% endblock %}
+{% block title %}{{ t('admin_login') }} — Jasurbek{% endblock %}
 {% block content %}
 <div class="auth-wrap">
   <div class="auth-card glass">
-    <h1 class="auth-title">Admin Login</h1>
+    <h1 class="auth-title">{{ t('admin_login') }}</h1>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
@@ -18,22 +18,36 @@
     <form method="POST" action="{{ url_for('login') }}" class="auth-form" novalidate>
       <label class="field">
         <span class="field-icon"><i class="fa-regular fa-user"></i></span>
-        <input type="text" name="username" placeholder="Username" autocomplete="username" required autofocus>
+        <input
+          type="text"
+          name="username"
+          placeholder="{{ t('username') }}"
+          autocomplete="username"
+          required
+          autofocus
+        >
       </label>
 
       <label class="field">
         <span class="field-icon"><i class="fa-solid fa-lock"></i></span>
-        <input type="password" id="pw" name="password" placeholder="Password" autocomplete="current-password" required>
+        <input
+          type="password"
+          id="pw"
+          name="password"
+          placeholder="{{ t('password') }}"
+          autocomplete="current-password"
+          required
+        >
         <button type="button" class="pw-toggle" aria-label="Show password">
           <i class="fa-regular fa-eye"></i>
         </button>
       </label>
 
-      <button type="submit" class="btn btn-primary w-full">Login</button>
+      <button type="submit" class="btn btn-primary w-full">{{ t('login') }}</button>
 
       <div class="auth-footer">
-        <a href="{{ url_for('forgot_password') }}">Forgot Password?</a>
-        <span class="version">Version: {{ APP_VERSION }}</span>
+        <a href="{{ url_for('forgot_password') }}">{{ t('forgot_password') }}</a>
+        <span class="version">{{ t('version') }}: {{ APP_VERSION }}</span>
       </div>
     </form>
   </div>

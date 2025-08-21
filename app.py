@@ -1,3 +1,4 @@
+# app.py (final, cleaned)
 # app.py — Vanta Inventory (FINAL, merged, advanced)
 # - Clean imports & logging
 # - Robust currency/i18n helpers (USD/AED/UZS) with caching FX
@@ -12,7 +13,7 @@
 import os, io, time, json, zipfile, logging, sys
 from decimal import Decimal
 from urllib.parse import urlparse
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from flask import (
     Flask, render_template, request, redirect, url_for,
@@ -41,8 +42,6 @@ from i18n import t  # your translation helper
 # Offline mode (skip all external HTTP and use safe defaults)
 OFFLINE = os.getenv("OFFLINE", "0").lower() in ("1", "true", "yes")
 
-
-from datetime import datetime, date, timedelta  # already imported date; keep timedelta too
 
 def _parse_date(s):
     try:
@@ -139,6 +138,7 @@ def fmt_money(value, curr=None, lang=None):
 
 # FX cache: 1 USD = rate[currency]
 _FX_CACHE = {"rates": None, "ts": 0}
+
 def _fetch_usd_rates():
     # Always return something usable
     if OFFLINE:
@@ -231,6 +231,7 @@ def fmt_money_auto(value, from_curr=None):
     return fmt_money(convert_amount(value, from_curr=from_curr, to_curr=get_curr()))
 
 # Money parsing helpers (for “1,234” inputs)
+
 def money_plain(v, decimals=0):
     try:
         v = float(str(v).replace(",", ""))
@@ -248,6 +249,7 @@ def parse_money(s):
 # =========================
 # Auth (hardened)
 # =========================
+
 def _load_admins():
     """
     Load admins from env:
@@ -340,8 +342,10 @@ def money_filter(v):
 # =========================
 # Data access
 # =========================
+
 def get_inventory():
-    rows = db.db_all("""
+    rows = db.db_all(
+        """
         SELECT
             id,
             name,
@@ -356,7 +360,9 @@ def get_inventory():
             COALESCE(currency, :c) AS currency
         FROM inventory
         ORDER BY id
-    """, {"c": BASE_CCY})
+    """,
+        {"c": BASE_CCY},
+    )
     return [tuple(r) for r in rows]
 
 
@@ -600,8 +606,6 @@ def index():
     )
 
 
-
-
 # ➕ Add Item (UPSERT by name)
 @app.post("/add")
 def add_item():
@@ -638,17 +642,23 @@ def add_item():
         if existing:
             item_id, existing_qty = existing[0], int(existing[1] or 0)
             new_qty = existing_qty + quantity
-            db.db_exec("""
+            db.db_exec(
+                """
                 UPDATE inventory
                    SET buying_price=:bp, selling_price=:sp, quantity=:q, updated_at=CURRENT_TIMESTAMP
                  WHERE id=:id
-            """, {"bp": buying_price, "sp": selling_price, "q": new_qty, "id": item_id})
+                """,
+                {"bp": buying_price, "sp": selling_price, "q": new_qty, "id": item_id},
+            )
             flash(f"Updated '{name}': quantity +{quantity} → {new_qty}.", "success")
         else:
-            db.db_exec("""
+            db.db_exec(
+                """
                 INSERT INTO inventory (name, buying_price, selling_price, quantity)
                 VALUES (:n, :bp, :sp, :q)
-            """, {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity})
+                """,
+                {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity},
+            )
             flash(f"Added '{name}' (qty {quantity}).", "success")
     except Exception as e:
         flash(f"Failed to save item: {e}", "error")
@@ -789,11 +799,14 @@ def edit_item(item_id):
             flash(f"Currency conversion failed: {e}", "error"); return redirect(url_for("edit_item", item_id=item_id))
 
         try:
-            db.db_exec("""
+            db.db_exec(
+                """
                 UPDATE inventory
                    SET name=:n, buying_price=:bp, selling_price=:sp, quantity=:q
                  WHERE id=:id
-            """, {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity, "id": item_id})
+                """,
+                {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity, "id": item_id},
+            )
             flash(f"Item '{name}' updated.", "success")
             return redirect(url_for("index"))
         except Exception as e:
@@ -811,18 +824,20 @@ def edit_item(item_id):
 # 📊 API — Stock Overview (for advanced chart)
 @app.get("/api/stock/overview")
 def api_stock_overview():
-    # Return JSON even when unauthenticated so the front-end doesn't crash
+    # Return JSON; 401 if not logged in so UI can show empty gracefully
     if not is_logged_in():
         return jsonify({"items": [], "low_threshold": 5, "totals": {"qty": 0, "value": 0.0}}), 401
 
-    rows = db.db_all("""
+    rows = db.db_all(
+        """
         SELECT id, name,
                COALESCE(quantity,0)       AS qty,
                COALESCE(buying_price,0)   AS buy,
                COALESCE(selling_price,0)  AS sell
         FROM inventory
         ORDER BY name
-    """)
+        """
+    )
 
     items, totals_qty, totals_value = [], 0, 0.0
     low_threshold = 5
@@ -838,7 +853,7 @@ def api_stock_overview():
             "sell": convert_amount(sell, from_curr=BASE_CCY, to_curr=ui),
             "value": value_ui,
             "profit_per": max(convert_amount(sell - buy, from_curr=BASE_CCY, to_curr=ui), 0),
-            "is_low": qty <= low_threshold
+            "is_low": qty <= low_threshold,
         })
         totals_qty   += qty
         totals_value += value_ui
@@ -846,7 +861,7 @@ def api_stock_overview():
     return jsonify({
         "items": items,
         "low_threshold": low_threshold,
-        "totals": {"qty": totals_qty, "value": totals_value}
+        "totals": {"qty": totals_qty, "value": totals_value},
     })
 
 
@@ -979,12 +994,14 @@ def admin_backup():
     conn.autocommit = True
 
     with conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(
+            """
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema='public' AND table_type='BASE TABLE'
             ORDER BY table_name;
-        """)
+            """
+        )
         tables = [r[0] for r in cur.fetchall()]
 
     ts = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
@@ -1123,7 +1140,7 @@ def __debug_now():
 @app.get("/__debug/sales")
 def __debug_sales():
     rows = db.db_all("SELECT id, item_id, qty, sell_price, profit, sold_at FROM sales ORDER BY id DESC LIMIT 10")
-    return jsonify([{
+    return jsonify([{ 
         "id": r[0], "item_id": r[1], "qty": r[2], "sell_price": float(r[3] or 0),
         "profit": float(r[4] or 0), "sold_at": str(r[5])
     } for r in rows])
