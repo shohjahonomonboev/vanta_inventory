@@ -2,39 +2,40 @@
 {% block title %}{{ t("app_name") }}{% endblock %}
 {% block content %}
 
-<div class="logo-container" style="text-align:center;margin-bottom:8px;">
+<div class="logo-container a-down" style="text-align:center;margin-bottom:8px;">
   <img src="{{ url_for('static', filename='jasurbek_logo.png') }}" class="logo" alt="Jasurbek Logo" style="max-height:64px;">
 </div>
 
-<h1>{{ t("app_name") }}</h1>
-<p class="subtitle">{{ t("welcome_back") }}</p>
+<h1 class="a-down">{{ t("app_name") }}</h1>
+<p class="subtitle a-up">{{ t("welcome_back") }}</p>
 
 <!-- KPIs -->
-<div class="kpis">
-  <div class="kpi kpi-green">
+<div class="kpis stagger">
+  <div class="kpi kpi-green card a-up" data-tilt>
     <strong>{{ t("todays_revenue") }}</strong>
     {{ today_revenue | ccy | fmtmoney }}
   </div>
-  <div class="kpi kpi-blue">
+  <div class="kpi kpi-blue card a-up" data-tilt>
     <strong>{{ t("todays_profit") }}</strong>
     {{ today_profit | ccy | fmtmoney }}
   </div>
 </div>
 
 <!-- Date window -->
-<form method="GET" action="{{ url_for('index') }}" class="form-row card" style="padding:12px; gap:8px; align-items:center;">
+<form method="GET" action="{{ url_for('index') }}" class="form-row card a-up" style="padding:12px; gap:8px; align-items:center;">
   <label>From <input type="date" name="from" value="{{ selected_from }}"></label>
   <label>To   <input type="date" name="to"   value="{{ selected_to }}"></label>
   <input type="hidden" name="search" value="{{ search_query }}">
   <input type="hidden" name="filter" value="{{ selected_filter }}">
   <input type="hidden" name="sort"   value="{{ request.args.get('sort','') }}">
-  <button type="submit">Apply Date</button>
-  <a class="btn btn-outline" href="{{ url_for('index') }}">Reset</a>
+  <button type="submit">{{ t('apply') or 'Apply Date' }}</button>
+  <a class="btn btn-outline" href="{{ url_for('index') }}">{{ t('reset') or 'Reset' }}</a>
 </form>
 
 <!-- Sell Item -->
-<h2>{{ t("sell_item") }}</h2>
-<form action="{{ url_for('sell_item') }}" method="POST" class="form-row card" style="padding:12px;">
+<h2 class="a-down">{{ t("sell_item") }}</h2>
+<form action="{{ url_for('sell_item') }}" method="POST" class="form-row card a-up" style="padding:12px;">
+  <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
   <select name="item_id" required id="sell-item-select" aria-label="{{ t('item') }}">
     {% for item in inventory %}
       <option value="{{ item[0] }}">
@@ -51,7 +52,7 @@
   // Prefill sell price (UI currency)
   const priceMap = {
     {% for item in inventory %}
-      "{{ item[0] }}": {{ (item[3] | ccy) | float }}{{ "," if not loop.last else "" }}
+      "{{ item[0] }}": {{ (item[3] | ccy) }}{{ "," if not loop.last else "" }}
     {% endfor %}
   };
   (function () {
@@ -69,15 +70,16 @@
 </script>
 
 <!-- Add Item -->
-<h2 class="section-title">
+<h2 class="section-title a-down">
   {{ t("add_item") }}
-  <span class="info" role="button" tabindex="0"
+  <span class="info a-pop" role="button" tabindex="0"
         aria-label="Pricing hint"
         data-tip="Prices you enter are in UI currency {{ CURRENCY }}. They're stored internally in UZS.">
     <i class="fa-regular fa-circle-question"></i>
   </span>
 </h2>
-<form action="{{ url_for('add_item') }}" method="POST" class="form-row card" style="padding:12px;">
+<form action="{{ url_for('add_item') }}" method="POST" class="form-row card a-up" style="padding:12px;">
+  <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
   <input type="text"  name="name"          placeholder="{{ t('item') }}" required>
   <input type="text"  name="buying_price"  data-money data-decimals="0" placeholder="{{ t('buy') }} ({{ CURRENCY }})" required>
   <input type="text"  name="selling_price" data-money data-decimals="0" placeholder="{{ t('sell') }} ({{ CURRENCY }})" required>
@@ -86,10 +88,11 @@
 </form>
 
 <!-- Language & Currency -->
-<div class="prefs-card card" style="padding:14px;margin-top:8px;">
+<div class="prefs-card card a-up" style="padding:14px;margin-top:8px;">
   <h3 class="prefs-title">{{ t("lang_curr") }}</h3>
   <div class="form-row" style="gap:16px;">
     <form method="POST" action="{{ url_for('set_prefs') }}" class="prefs-form" id="lang-form" style="display:flex;gap:8px;align-items:center;">
+      <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
       <label for="lang-select">{{ t("language") }}</label>
       <select name="lang" id="lang-select">
         <option value="en" {{ 'selected' if USER_LANG=='en' else '' }}>English</option>
@@ -99,6 +102,7 @@
     </form>
 
     <form action="{{ url_for('set_currency') }}" method="POST" class="prefs-form" id="currency-form" style="display:flex;gap:8px;align-items:center;">
+      <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
       <label for="currency-select">{{ t("currency") }}</label>
       <select name="currency" id="currency-select">
         <option value="USD" {{ 'selected' if CURRENCY=='USD' else '' }}>USD ($)</option>
@@ -129,9 +133,9 @@
 </script>
 
 <!-- Filters -->
-<h2 class="filters-title">{{ t("filters") }}</h2>
-<p class="hint">{{ t("low_stock_hint") }} {{ t("high_profit_hint") }}</p>
-<form method="GET" action="{{ url_for('index') }}" class="form-row card" style="padding:12px;">
+<h2 class="filters-title a-down">{{ t("filters") }}</h2>
+<p class="hint a-up">{{ t("low_stock_hint") }} {{ t("high_profit_hint") }}</p>
+<form method="GET" action="{{ url_for('index') }}" class="form-row card a-up" style="padding:12px;">
   <input type="text" name="search" placeholder="{{ t('search_item') }}..." value="{{ search_query }}">
   <select name="filter">
     <option value="">{{ t('filter') }} — </option>
@@ -143,14 +147,19 @@
 </form>
 
 <!-- Inventory Table -->
-<h2>{{ t("inventory") }}</h2>
-<div class="table-wrap">
+<h2 class="a-down">{{ t("inventory") }}</h2>
+
+<div class="table-wrap card a-fade" data-once>
   {% set q = request.args.get('search','') %}
   {% set f = request.args.get('filter','') %}
 
-  <div class="toolbar" style="padding:10px;">
-    <button id="filterBtn" class="btn" aria-expanded="false" aria-haspopup="true" aria-controls="filterMenu">Filter / Sort</button>
-    <div id="filterMenu" class="menu hidden" role="menu" aria-label="Inventory sort menu">
+  <div class="toolbar a-up" style="padding:10px;">
+    <button id="filterBtn" class="btn btn-primary" aria-expanded="false" aria-haspopup="true" aria-controls="filterMenu">
+      {{ t('filter') }} / {{ t('sort') }}
+    </button>
+
+    <!-- Pop menu -->
+    <div id="filterMenu" class="menu hidden a-pop" role="menu" aria-label="Inventory sort menu">
       <a class="menu-item" href="{{ url_for('index', sort='name_asc',  search=q, filter=f) }}">{{ t('sort_name_asc') }}</a>
       <a class="menu-item" href="{{ url_for('index', sort='name_desc', search=q, filter=f) }}">{{ t('sort_name_desc') }}</a>
       <hr class="menu-sep">
@@ -168,8 +177,9 @@
     .toolbar { position: relative; display:flex; gap:8px; align-items:center; margin-bottom:10px; }
     .menu.hidden { display:none; }
     #filterMenu { position:absolute; top:100%; left:0; margin-top:6px; z-index:5; padding:8px;
-      border:1px solid var(--border); border-radius:10px; background:var(--card); box-shadow:0 8px 24px rgba(0,0,0,0.08); }
-    #filterMenu .menu-item { display:block; padding:8px 12px; text-decoration:none; color:inherit; }
+      border:1px solid var(--border); border-radius:10px; background:var(--card);
+      box-shadow:0 8px 24px rgba(0,0,0,0.08); }
+    #filterMenu .menu-item { display:block; padding:8px 12px; text-decoration:none; color:inherit; border-radius:8px; }
     #filterMenu .menu-item:hover { background:rgba(0,0,0,.06); }
     #filterMenu .menu-sep { margin:6px 0; border:none; border-top:1px solid var(--border); }
   </style>
@@ -180,27 +190,28 @@
       const menu = document.getElementById('filterMenu');
       if (!btn || !menu) return;
 
-      btn.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        const hidden = menu.classList.toggle('hidden');
-        btn.setAttribute('aria-expanded', String(!hidden));
-      });
-
-      document.addEventListener('click', (e)=>{
-        if (!menu.contains(e.target) && e.target !== btn) {
-          if (!menu.classList.contains('hidden')) {
-            menu.classList.add('hidden');
-            btn.setAttribute('aria-expanded', 'false');
-          }
-        }
-      });
-
-      document.addEventListener('keydown', (e)=>{
-        if (e.key === 'Escape' && !menu.classList.contains('hidden')) {
+      const openMenu = () => {
+        menu.classList.remove('hidden');
+        // restart a-pop animation each open
+        menu.classList.remove('a-pop');
+        void menu.offsetWidth; // reflow
+        menu.classList.add('a-pop');
+        btn.setAttribute('aria-expanded', 'true');
+      };
+      const closeMenu = () => {
+        if (!menu.classList.contains('hidden')) {
           menu.classList.add('hidden');
           btn.setAttribute('aria-expanded', 'false');
         }
+      };
+
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        if (menu.classList.contains('hidden')) openMenu(); else closeMenu();
       });
+
+      document.addEventListener('click', (e)=>{ if (!menu.contains(e.target) && e.target !== btn) closeMenu(); });
+      document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeMenu(); });
 
       const active = new URLSearchParams(location.search).get('sort') || '';
       document.querySelectorAll('#filterMenu .menu-item').forEach(a=>{
@@ -209,8 +220,8 @@
     })();
   </script>
 
-  <table id="inventoryTable" class="table">
-    <thead>
+  <table id="inventoryTable" class="table a-fade" data-once>
+    <thead class="a-down" data-once>
       <tr>
         <th>#</th>
         <th>{{ t("item") }}</th>
@@ -221,7 +232,7 @@
         <th>{{ t("action") }}</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody class="stagger">
       {% for it in inventory %}
         <tr>
           <td>{{ loop.index }}</td>
@@ -231,21 +242,25 @@
           <td>{{ (it[3] | ccy) | fmtmoney }}</td>
           <td>{{ (it[5] | ccy) | fmtmoney }}</td>
           <td>
-            <a href="{{ url_for('edit_item', item_id=it[0]) }}" class="btn">Edit</a>
-            <a href="{{ url_for('delete_item', item_id=it[0]) }}" class="btn btn-red" onclick="return confirm('Delete this item?')">Delete</a>
+            <a href="{{ url_for('edit_item', item_id=it[0]) }}" class="btn">{{ t('edit') or 'Edit' }}</a>
+            <form action="{{ url_for('delete_item', item_id=it[0]) }}" method="post" style="display:inline"
+                  onsubmit="return confirm('{{ t('confirm_delete') or 'Delete this item?' }}')">
+              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+              <button class="btn btn-red" type="submit">{{ t('delete') or 'Delete' }}</button>
+            </form>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="7" style="text-align:center; opacity:.7">No items found.</td></tr>
+        <tr><td colspan="7" style="text-align:center; opacity:.7">{{ t('no_items') or 'No items found.' }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
 <!-- Sold Items -->
-<h2 class="mt-6">Sold Items ({{ selected_from }} → {{ selected_to }})</h2>
-<p class="subtitle">Return puts the quantity back into Inventory and removes this sale from today.</p>
-<div class="table-wrap">
+<h2 class="mt-6 a-down">{{ t('sold_items') or 'Sold Items' }}{% if selected_from or selected_to %} ({{ selected_from }} → {{ selected_to }}){% endif %}</h2>
+<p class="subtitle a-up">{{ t('sold_items_hint') or 'Return puts the quantity back into Inventory and removes this sale from today.' }}</p>
+<div class="table-wrap card a-fade">
   <table class="table">
     <thead>
       <tr>
@@ -262,61 +277,75 @@
           <td>{{ s[4] | ccy | fmtmoney }}</td>
           <td>{{ s[5] | ccy | fmtmoney }}</td>
           <td class="actions">
-            <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline"><button class="btn btn-yellow">Return</button></form>
-            <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline" onsubmit="return confirm('Delete sale record?')"><button class="btn btn-red">Delete</button></form>
+            <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
+              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+              <button class="btn btn-yellow" type="submit">{{ t('return') or 'Return' }}</button>
+            </form>
+            <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline"
+                  onsubmit="return confirm('{{ t('confirm_delete_sale') or 'Delete sale record?' }}')">
+              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+              <button class="btn btn-red" type="submit">{{ t('delete') or 'Delete' }}</button>
+            </form>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="6" style="text-align:center; opacity:.7">No sales yet today.</td></tr>
+        <tr><td colspan="6" style="text-align:center; opacity:.7">{{ t('no_sales') or 'No sales yet.' }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 
 <!-- Stock Overview -->
-<section class="chart-block card" style="padding:16px">
+<section class="chart-block card chart-reveal a-up" style="padding:16px">
   <div class="row" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between">
-    <h2 class="section-title" style="margin:0">
+    <h2 class="section-title a-down" style="margin:0">
       {{ t('stock_overview_title') }}
-      <span class="info" tabindex="0" data-tip="{{ t('stock_overview_hint') }}"></span>
+      <span class="info a-pop" tabindex="0" data-tip="{{ t('stock_overview_hint') }}"></span>
     </h2>
-    <div class="chart-controls" style="gap:8px">
+
+    <div class="chart-controls a-up stagger" style="gap:8px">
       <input id="soh-search" type="search" placeholder="{{ t('search_items') }}"
+             class="input a-up"
              style="padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text)">
-      <label style="display:inline-flex;align-items:center;gap:6px">
+
+      <label class="a-up" style="display:inline-flex;align-items:center;gap:6px">
         {{ t('sort') or 'Sort' }}
-        <select id="soh-sort" style="padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text)">
+        <select id="soh-sort"
+                class="input"
+                style="padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text)">
           <option value="qty_desc">{{ t('qty_high_low') or 'Qty (high→low)' }}</option>
           <option value="value_desc">{{ t('value_high_low') or 'Value (high→low)' }}</option>
           <option value="profit_desc">{{ t('profit_unit_high_low') or 'Profit/unit (high→low)' }}</option>
           <option value="name_asc">{{ t('name_az') or 'Name (A→Z)' }}</option>
         </select>
       </label>
-      <label style="display:inline-flex;align-items:center;gap:6px">
+
+      <label class="a-up" style="display:inline-flex;align-items:center;gap:6px">
         Top N
         <input id="soh-topn" type="number" min="1" step="1" value="25"
+               class="input"
                style="width:80px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text)">
       </label>
-      <label style="display:inline-flex;align-items:center;gap:6px">
+
+      <label class="a-up" style="display:inline-flex;align-items:center;gap:6px">
         <input id="soh-hide-zero" type="checkbox" checked> {{ t('hide_zero_qty') or 'Hide zero qty' }}
       </label>
-      <button id="soh-reset" class="btn btn-outline">{{ t('reset_view') or 'Reset view' }}</button>
+
+      <button id="soh-reset" class="btn btn-outline a-up">{{ t('reset_view') or 'Reset view' }}</button>
     </div>
   </div>
 
-  <div class="chart-card" style="height:420px;margin-top:10px">
+  <div class="chart-card chart-reveal" style="height:420px;margin-top:10px">
     <canvas id="stockOverview"></canvas>
   </div>
 </section>
-
-<!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
 <script>
 (function () {
   const el = document.getElementById("stockOverview");
   if (!el) return;
   const ctx = el.getContext("2d");
+  const wrap = el.closest(".chart-reveal"); // for motion reveal
   const currency = "{{ CURRENCY }}";
   const T = {{ {"quantity": t("quantity"), "stock_value": t("stock_value")} | tojson }};
   let stockData = [];
@@ -334,7 +363,7 @@
             data: filtered.map(i => i.qty),
             yAxisID: "y",
             borderWidth: 1,
-            backgroundColor: "rgba(59,130,246,0.6)",  // blue bars
+            backgroundColor: "rgba(59,130,246,0.6)",
             borderColor: "rgb(59,130,246)"
           },
           { 
@@ -343,10 +372,12 @@
             type: "line",
             yAxisID: "y1",
             tension: .3,
-            borderColor: "rgb(16,185,129)",          // ✅ green line
-            backgroundColor: "rgba(16,185,129,0.3)", // ✅ soft green fill
+            borderColor: "rgb(16,185,129)",
+            backgroundColor: "rgba(16,185,129,0.3)",
             pointBackgroundColor: "rgb(16,185,129)",
-            pointBorderColor: "#fff"
+            pointBorderColor: "#fff",
+            pointRadius: 3,
+            pointHoverRadius: 5
           }
         ]
       },
@@ -368,7 +399,13 @@
                 : `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}`
             }
           }
-        }
+        },
+        animation: {
+          duration: 700,
+          easing: "easeOutQuart",
+          onComplete: () => { if (wrap) wrap.classList.add("in"); }
+        },
+        hover: { animationDuration: 120 }
       }
     });
   }
@@ -410,12 +447,12 @@
         name: i.name, qty: Number(i.qty)||0, value: Number(i.value)||0,
         profit_per: Number(i.profit_per ?? i.profit_per_unit ?? 0)
       }));
+      if (wrap) wrap.classList.remove("in");
       applyFilters();
     })
-    .catch(err => { console.warn("stock overview fetch failed:", err); stockData = []; applyFilters(); });
+    .catch(err => { console.warn("stock overview fetch failed:", err); stockData = []; if (wrap) wrap.classList.add("in"); applyFilters(); });
 })();
 </script>
-
 
 <!-- Live input money formatter -->
 <script>
@@ -437,12 +474,12 @@
 </script>
 
 <!-- Export & Backup -->
-<h2 class="export-title">{{ t("export_backup") }}</h2>
-<p class="hint">
+<h2 class="export-title a-down">{{ t("export_backup") }}</h2>
+<p class="hint a-up">
   <strong>{{ t("download_excel") }}</strong> — export your current inventory.<br>
   <strong>{{ t("backup_now") }}</strong> — create a ZIP with CSVs of your tables.
 </p>
-<div class="form-row card" style="padding:12px;">
+<div class="form-row card a-up" style="padding:12px;">
   <a href="{{ url_for('export_excel') }}" class="btn btn-green">&#128202; {{ t("export_excel") }}</a>
   <a href="{{ url_for('admin_backup') }}" class="btn">&#128190; {{ t("backup_db") }}</a>
 </div>

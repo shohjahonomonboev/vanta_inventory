@@ -1,13 +1,14 @@
 ﻿{% extends "base.html" %}
 {% block title %}{{ t('admin_login') }} — Jasurbek{% endblock %}
+
 {% block content %}
-<div class="auth-wrap">
-  <div class="auth-card glass">
-    <h1 class="auth-title">{{ t('admin_login') }}</h1>
+<div class="auth-wrap a-fade" data-once>
+  <div class="auth-card glass a-pop">
+    <h1 class="auth-title a-down">{{ t('admin_login') }}</h1>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        <div class="flash-stack">
+        <div class="flash-stack a-up" role="status" aria-live="polite">
           {% for cat, msg in messages %}
             <div class="flash {{ cat }}">{{ msg }}</div>
           {% endfor %}
@@ -15,10 +16,11 @@
       {% endif %}
     {% endwith %}
 
-    <form method="POST" action="{{ url_for('login') }}" class="auth-form" novalidate>
-      <label class="field">
-        <span class="field-icon"><i class="fa-regular fa-user"></i></span>
+    <form method="POST" action="{{ url_for('login') }}" class="auth-form stagger" novalidate>
+      <label class="field a-up">
+        <span class="field-icon"><i class="fa-regular fa-user" aria-hidden="true"></i></span>
         <input
+          class="input"
           type="text"
           name="username"
           placeholder="{{ t('username') }}"
@@ -28,9 +30,10 @@
         >
       </label>
 
-      <label class="field">
-        <span class="field-icon"><i class="fa-solid fa-lock"></i></span>
+      <label class="field a-up">
+        <span class="field-icon"><i class="fa-solid fa-lock" aria-hidden="true"></i></span>
         <input
+          class="input"
           type="password"
           id="pw"
           name="password"
@@ -39,13 +42,13 @@
           required
         >
         <button type="button" class="pw-toggle" aria-label="Show password">
-          <i class="fa-regular fa-eye"></i>
+          <i class="fa-regular fa-eye" aria-hidden="true"></i>
         </button>
       </label>
 
-      <button type="submit" class="btn btn-primary w-full">{{ t('login') }}</button>
+      <button type="submit" class="btn btn-primary w-full a-up">{{ t('login') }}</button>
 
-      <div class="auth-footer">
+      <div class="auth-footer a-up">
         <a href="{{ url_for('forgot_password') }}">{{ t('forgot_password') }}</a>
         <span class="version">{{ t('version') }}: {{ APP_VERSION }}</span>
       </div>
@@ -62,8 +65,8 @@
       const show = pw.type === 'password';
       pw.type = show ? 'text' : 'password';
       btn.innerHTML = show
-        ? '<i class="fa-regular fa-eye-slash"></i>'
-        : '<i class="fa-regular fa-eye"></i>';
+        ? '<i class="fa-regular fa-eye-slash" aria-hidden="true"></i>'
+        : '<i class="fa-regular fa-eye" aria-hidden="true"></i>';
       btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
     });
   }());

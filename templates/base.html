@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="{{ USER_LANG or 'en' }}">
 <head>
+  <meta name="csrf-token" content="{{ CSRF_TOKEN }}">
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light dark" />
@@ -23,13 +24,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
+  <!-- Motion & App CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='motion.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ APP_VERSION }}">
+
   <!-- Icons -->
   <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
         crossorigin="anonymous" referrerpolicy="no-referrer">
-
-  <!-- App CSS -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ APP_VERSION }}">
 
   {% set AUTH_PAGES = ['login','forgot_password','forgot_password_post'] %}
   {% if request.endpoint not in AUTH_PAGES %}
@@ -43,39 +45,39 @@
 <body class="{% if request.endpoint in AUTH_PAGES %}no-chrome{% endif %}">
 
   {% if request.endpoint not in AUTH_PAGES %}
-  <header class="topbar card container" role="banner">
+  <header class="topbar card container a-down" role="banner" data-once>
     <div class="brand">
       <span class="cube" aria-hidden="true">&#x1F4E6;</span>
       <strong>Jasurbek Inventory</strong>
       <span class="badge badge-version" title="Current build">{{ APP_VERSION }}</span>
     </div>
     <div class="actions-row">
-      <button id="themeToggle" class="btn btn-outline" type="button" title="Toggle theme">Toggle theme</button>
-      <a href="{{ url_for('logout') }}" class="btn btn-red logout">Logout</a>
+      <button id="themeToggle" class="btn btn-outline" type="button" title="{{ t('toggle_theme') }}">{{ t('toggle_theme') }}</button>
+      <a href="{{ url_for('logout') }}" class="btn btn-red logout">{{ t('logout') }}</a>
     </div>
   </header>
   {% endif %}
 
- {% if request.endpoint not in AUTH_PAGES %}
+  {% if request.endpoint not in AUTH_PAGES %}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <div class="flash-area container" role="status" aria-live="polite">
+      <!-- Final Orin flash area: animated + accessible + auto-dismiss -->
+      <div class="flash-area container a-up" role="status" aria-live="polite">
         {% for category, msg in messages %}
-          <div class="flash {{ category }}">{{ msg }}</div>
+          <div class="flash toast {{ category }}">{{ msg }}</div>
         {% endfor %}
       </div>
     {% endif %}
   {% endwith %}
-{% endif %}
+  {% endif %}
 
-
-  <main class="container" role="main">
+  <main class="container a-fade" role="main" data-once>
     {% block content %}{% endblock %}
   </main>
 
   {% if request.endpoint not in AUTH_PAGES %}
-  <footer class="footer container" role="contentinfo">
-    Made with ⚡ by Shon — {{ APP_VERSION }}
+  <footer class="footer container a-up" role="contentinfo" data-once>
+    {{ t('Made with ⚡ by Shon') }} — {{ APP_VERSION }}
   </footer>
   {% endif %}
 
@@ -94,5 +96,91 @@
       });
     })();
   </script>
+
+  <!-- Motion JS (after content) -->
+  <script src="{{ url_for('static', filename='motion.js') }}" defer></script>
+
+<script>
+  // expose token to JS
+  window.CSRF_TOKEN = "{{ CSRF_TOKEN }}";
+
+  // 1) Auto-inject hidden CSRF input into every POST form (including ones added later)
+  (function injectCsrfIntoForms(){
+    function ensureToken(form){
+      if (!form || form.__csrfBound) return;
+      const method = (form.getAttribute('method') || '').toUpperCase();
+      if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+        if (!form.querySelector('input[name="_csrf"]')) {
+          const i = document.createElement('input');
+          i.type = 'hidden'; i.name = '_csrf'; i.value = window.CSRF_TOKEN;
+          form.appendChild(i);
+        }
+        form.__csrfBound = true;
+      }
+    }
+    const scan = () => document.querySelectorAll('form').forEach(ensureToken);
+    document.addEventListener('DOMContentLoaded', scan);
+    // Watch for dynamically inserted forms
+    new MutationObserver(() => scan()).observe(document.documentElement, { childList: true, subtree: true });
+  })();
+
+  // 2) Auto-attach header for fetch() on unsafe methods
+  (function wrapFetch(){
+    const raw = window.fetch;
+    window.fetch = function(input, init = {}){
+      const req = new Request(input, init);
+      const unsafe = ['POST','PUT','PATCH','DELETE'].includes(req.method.toUpperCase());
+      if (unsafe) {
+        const hdrs = new Headers(req.headers || {});
+        if (!hdrs.has('X-CSRF-Token')) hdrs.set('X-CSRF-Token', window.CSRF_TOKEN);
+        init.headers = hdrs;
+      }
+      return raw(input, init);
+    };
+  })();
+</script>
+
+  <!-- Final Orin flash auto-dismiss -->
+  <script>
+    (function(){
+      const flashes = document.querySelectorAll('.flash-area .flash');
+      flashes.forEach((el, i) => {
+        const life = 3000 + i * 500;          // stagger lifetimes
+        setTimeout(() => el.classList.add('hide'), life);
+        setTimeout(() => el.remove(), life + 500);
+      });
+    })();
+  </script>
+
+<script>
+(() => {
+  const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+  if (!token) return;
+
+  // Auto-inject hidden _csrf into ALL POST forms (even ones created later)
+  document.addEventListener('submit', (e) => {
+    const f = e.target;
+    if (!f || f.tagName !== 'FORM') return;
+    const m = (f.getAttribute('method') || 'get').toLowerCase();
+    if (m !== 'post') return;
+    if (!f.querySelector('input[name="_csrf"]')) {
+      const i = document.createElement('input');
+      i.type = 'hidden'; i.name = '_csrf'; i.value = token;
+      f.appendChild(i);
+    }
+  }, true);
+
+  // Also tag all fetch() calls with the header, for AJAX posts
+  const _fetch = window.fetch;
+  window.fetch = function(url, opts = {}) {
+    const headers = new Headers(opts.headers || {});
+    if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', token);
+    return _fetch(url, { ...opts, headers });
+  };
+})();
+</script>
+
+
+  {% block body_end %}{% endblock %}
 </body>
 </html>

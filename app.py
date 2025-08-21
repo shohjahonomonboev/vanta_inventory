@@ -1,20 +1,22 @@
-# app.py (final, cleaned)
 # app.py — Vanta Inventory (FINAL, merged, advanced)
-# - Clean imports & logging
-# - Robust currency/i18n helpers (USD/AED/UZS) with caching FX
-# - Search + filter + 6-way sort (server param → in-memory)
-# - Sell / Add / Edit / Delete / Return sale
-# - Excel export (dual currency) with number formats
-# - DB backup to ZIP (CSV per table) for Postgres
-# - Health/version + GEO/Rates APIs (offline-safe)
-# - Hardened login/logout (env-configurable admins, case-insensitive)
-# - Advanced Stock Overview API for the chart (JSON + 401 if unauth)
 
-import os, io, time, json, zipfile, logging, sys
-from decimal import Decimal
+# ── Stdlib
+import os, io, time, json, zipfile, logging, sys, re, hmac, secrets
+from decimal import Decimal, InvalidOperation
+# Make sqlite accept Decimal transparently
+try:
+    import sqlite3
+    sqlite3.register_adapter(Decimal, float)
+except Exception:
+    pass
+
 from urllib.parse import urlparse
 from datetime import datetime, date, timedelta
 
+# ── Third-party
+import requests
+from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import (
     Flask, render_template, request, redirect, url_for,
     session, flash, send_file, jsonify, g
@@ -30,38 +32,86 @@ except Exception:  # fallback if babel not installed
         except Exception:
             return f"{value} {currency}"
 
-import requests
-
-# Your DB helpers (SQLAlchemy wrapper):
-# must expose: db_all(sql, params=None), db_one(sql, params=None), db_exec(sql, params=None), DATABASE_URL
+# ── Local modules
+# db_all/sql, db_one, db_exec, DATABASE_URL
 import database_sqlalchemy as db
 from database_sqlalchemy import ensure_schema
+from i18n import t  # translation helper
 
-from i18n import t  # your translation helper
-
-# Offline mode (skip all external HTTP and use safe defaults)
+# ── App config
 OFFLINE = os.getenv("OFFLINE", "0").lower() in ("1", "true", "yes")
 
-
-def _parse_date(s):
+def _parse_date(s: str) -> date | None:
     try:
         return datetime.strptime(s, "%Y-%m-%d").date()
     except Exception:
         return None
 
+# Flash helpers (clean categories everywhere)
+def flash_success(msg): flash(msg, "success")
+def flash_error(msg):   flash(msg, "error")
+def flash_info(msg):    flash(msg, "info")
+def flash_warn(msg):    flash(msg, "warning")
 
 # =========================
-# App bootstrap + logging
+# App bootstrap + env
 # =========================
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-only-change-me")
 
+ENV = os.getenv("ENV", "dev").lower()
+IS_DEV = (ENV == "dev")
+
+app.config.update(
+    DEBUG=IS_DEV,
+    TEMPLATES_AUTO_RELOAD=IS_DEV,
+    SEND_FILE_MAX_AGE_DEFAULT=(0 if IS_DEV else 31536000),
+    SESSION_COOKIE_SECURE=not IS_DEV,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_HTTPONLY=True,
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+)
+
+# Behind-proxy headers (prod only)
+if not IS_DEV:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
+# =========================
+# Logging
+# =========================
 handler = logging.StreamHandler(sys.stdout)
 handler.setLevel(logging.INFO)
 app.logger.addHandler(handler)
 app.logger.setLevel(logging.INFO)
 
+# =========================
+# Security headers (both envs)
+# =========================
+@app.after_request
+def secure_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault(
+        "Permissions-Policy",
+        "geolocation=(), microphone=(), camera=(), interest-cohort=()"
+    )
+    return resp
+
+# =========================
+# Global prod error page (dev shows full tracebacks)
+# =========================
+if not IS_DEV:
+    @app.errorhandler(Exception)
+    def handle_error(e):
+        if isinstance(e, HTTPException):
+            return e
+        app.logger.exception("Unhandled exception")
+        return "Internal Server Error", 500
+
+# =========================
 # Ensure DB schema at boot
+# =========================
 with app.app_context():
     try:
         ensure_schema()
@@ -69,37 +119,21 @@ with app.app_context():
     except Exception:
         app.logger.exception("⚠️ Failed to ensure schema")
 
-# Global error guard (keep simple response, log stack)
-@app.errorhandler(Exception)
-def handle_error(e):
-    app.logger.exception("Unhandled exception")
-    return "Internal Server Error", 500
-
-
-# =========================
-# Env tweaks
-# =========================
-ENV = os.getenv("ENV", "dev").lower()
-if ENV == "dev":
-    app.config.update(
-        DEBUG=True, TEMPLATES_AUTO_RELOAD=True, SERVER_NAME=None,
-        SESSION_COOKIE_SECURE=False, SESSION_COOKIE_SAMESITE="Lax",
-    )
-else:
-    app.config.update(
-        TEMPLATES_AUTO_RELOAD=False, SEND_FILE_MAX_AGE_DEFAULT=31536000,
-        SESSION_COOKIE_SECURE=True, SESSION_COOKIE_SAMESITE="Lax",
-    )
-
 
 # =========================
 # Version / Health
 # =========================
 def get_version():
+    val = None
     try:
-        return open("VERSION", encoding="utf-8").read().strip()
+        val = open("VERSION", encoding="utf-8").read().strip()
     except Exception:
-        return os.getenv("APP_VERSION", "v1.0.0")
+        pass
+    if not val or len(val) < 3:  # covers "", "v"
+        val = os.getenv("APP_VERSION", "").strip()
+    if not val or len(val) < 3:
+        val = "v1.0.0"
+    return val
 
 @app.context_processor
 def inject_version():
@@ -108,6 +142,53 @@ def inject_version():
 @app.get("/__health")
 def __health():
     return jsonify(status="ok", version=get_version()), 200
+
+
+# =========================
+# CSRF (single source of truth)
+# =========================
+import hmac, secrets
+
+def _csrf_token():
+    tok = session.get("_csrf")
+    if not tok:
+        tok = secrets.token_urlsafe(32)
+        session["_csrf"] = tok
+    return tok
+
+@app.context_processor
+def _inject_csrf():
+    return {"CSRF_TOKEN": _csrf_token()}
+
+def check_csrf() -> bool:
+    """
+    Route-level CSRF helper so existing calls don't crash.
+    Mirrors the logic in _csrf_protect(), but returns a boolean
+    instead of producing a response.
+    """
+    expected = session.get("_csrf", "")
+    sent = request.form.get("_csrf") or request.headers.get("X-CSRF-Token") or ""
+    ok = bool(expected) and hmac.compare_digest(expected, sent)
+    if not ok:
+        # keep it quiet; the route decides what to do
+        flash("Security check failed. Please retry.", "error")
+        return False
+    return True
+
+
+@app.before_request
+def _csrf_protect():
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        expected = session.get("_csrf", "")
+        sent = request.form.get("_csrf") or request.headers.get("X-CSRF-Token") or ""
+        ok = bool(expected) and hmac.compare_digest(expected, sent)
+        if not ok:
+            app.logger.warning("CSRF blocked: path=%s", request.path)
+            wants_json = request.is_json or "application/json" in request.headers.get("Accept", "")
+            if wants_json:
+                return jsonify({"error": "CSRF validation failed"}), 400
+            flash("Security check failed. Please retry.", "error")
+            return redirect(request.referrer or url_for("index"))
 
 
 # =========================
@@ -159,7 +240,7 @@ def _fetch_usd_rates():
             headers={"User-Agent": "VantaInventory/1.0"}, timeout=8
         ).json().get("rates", {})),
         ("frankfurter.app", lambda: requests.get(
-            "https://api.frankfurter.dev/v1/latest",
+            "https://api.frankfurter.app/latest",
             params={"from": "USD", "to": "AED,USD,UZS"},
             headers={"User-Agent": "VantaInventory/1.0"}, timeout=8
         ).json().get("rates", {})),
@@ -231,7 +312,6 @@ def fmt_money_auto(value, from_curr=None):
     return fmt_money(convert_amount(value, from_curr=from_curr, to_curr=get_curr()))
 
 # Money parsing helpers (for “1,234” inputs)
-
 def money_plain(v, decimals=0):
     try:
         v = float(str(v).replace(",", ""))
@@ -249,7 +329,6 @@ def parse_money(s):
 # =========================
 # Auth (hardened)
 # =========================
-
 def _load_admins():
     """
     Load admins from env:
@@ -339,10 +418,10 @@ def money_filter(v):
     except Exception:
         return v
 
+
 # =========================
 # Data access
 # =========================
-
 def get_inventory():
     rows = db.db_all(
         """
@@ -469,7 +548,7 @@ def index():
         idx = sort_map[sort_by]
         inventory = sorted(
             inventory,
-            key=lambda x: (x[idx] is None, x[idx]),
+            key=lambda x: (x[idx] is None, x[idx] if x[idx] is not None else 0),
             reverse=(direction == "desc"),
         )
 
@@ -610,60 +689,86 @@ def index():
 @app.post("/add")
 def add_item():
     if not is_logged_in():
+        flash("Please log in.", "warning")
         return redirect(url_for("login"))
+    if not check_csrf():
+        return redirect(url_for("index"))
 
+    # ---------- Name ----------
     name_raw = (request.form.get("name") or "").strip()
     if not name_raw:
-        flash("Name is required.", "error"); return redirect(url_for("index"))
-    name = name_raw.capitalize()
+        flash("Name is required.", "error")
+        return redirect(url_for("index"))
+    name = re.sub(r"\s+", " ", name_raw).strip()[:100]
 
+    # ---------- Quantity ----------
     try:
         quantity = int((request.form.get("quantity") or "").strip())
     except Exception:
-        flash("Quantity must be a number.", "error"); return redirect(url_for("index"))
+        flash("Quantity must be a number.", "error")
+        return redirect(url_for("index"))
     if quantity <= 0:
-        flash("Quantity must be greater than 0.", "error"); return redirect(url_for("index"))
+        flash("Quantity must be greater than 0.", "error")
+        return redirect(url_for("index"))
 
+    # ---------- Prices (UI currency) ----------
     try:
-        buying_price_ui  = parse_money(request.form.get("buying_price"))
-        selling_price_ui = parse_money(request.form.get("selling_price"))
-        bp_ui, sp_ui = float(buying_price_ui), float(selling_price_ui)
-    except Exception:
-        flash("Prices must be numeric.", "error"); return redirect(url_for("index"))
+        bp_ui = Decimal(str(parse_money(request.form.get("buying_price") or "0")))
+        sp_ui = Decimal(str(parse_money(request.form.get("selling_price") or "0")))
+    except (InvalidOperation, Exception):
+        flash("Prices must be numeric.", "error")
+        return redirect(url_for("index"))
     if bp_ui < 0 or sp_ui < 0:
-        flash("Prices must be non-negative.", "error"); return redirect(url_for("index"))
+        flash("Prices must be non-negative.", "error")
+        return redirect(url_for("index"))
+    if sp_ui < bp_ui:
+        flash("Selling price is below buying price.", "warning")
 
-    # UI → DB currency
-    buying_price  = convert_amount(bp_ui, from_curr=get_curr(), to_curr=BASE_CCY)
-    selling_price = convert_amount(sp_ui, from_curr=get_curr(), to_curr=BASE_CCY)
-
+    # ---------- Convert UI → DB base (UZS) ----------
     try:
-        existing = db.db_one("SELECT id, quantity FROM inventory WHERE name=:n", {"n": name})
-        if existing:
-            item_id, existing_qty = existing[0], int(existing[1] or 0)
+        buying_price  = Decimal(str(convert_amount(bp_ui, from_curr=get_curr(), to_curr=BASE_CCY)))
+        selling_price = Decimal(str(convert_amount(sp_ui, from_curr=get_curr(), to_curr=BASE_CCY)))
+    except Exception as e:
+        flash(f"Currency conversion failed: {e}", "error")
+        return redirect(url_for("index"))
+
+    # ---------- Cast for SQLite ----------
+    bp_db = float(buying_price)
+    sp_db = float(selling_price)
+
+    # ---------- UPSERT ----------
+    try:
+        row = db.db_one("SELECT id, quantity FROM inventory WHERE name=:n", {"n": name})
+        if row:
+            item_id, existing_qty = row[0], int(row[1] or 0)
             new_qty = existing_qty + quantity
             db.db_exec(
                 """
                 UPDATE inventory
-                   SET buying_price=:bp, selling_price=:sp, quantity=:q, updated_at=CURRENT_TIMESTAMP
-                 WHERE id=:id
+                   SET buying_price = :bp,
+                       selling_price = :sp,
+                       quantity      = :q,
+                       updated_at    = CURRENT_TIMESTAMP
+                 WHERE id = :id
                 """,
-                {"bp": buying_price, "sp": selling_price, "q": new_qty, "id": item_id},
+                {"bp": bp_db, "sp": sp_db, "q": new_qty, "id": item_id},
             )
-            flash(f"Updated '{name}': quantity +{quantity} → {new_qty}.", "success")
+            flash(f"Updated “{name}”: +{quantity} → {new_qty}.", "success")
         else:
             db.db_exec(
                 """
                 INSERT INTO inventory (name, buying_price, selling_price, quantity)
                 VALUES (:n, :bp, :sp, :q)
                 """,
-                {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity},
+                {"n": name, "bp": bp_db, "sp": sp_db, "q": quantity},
             )
-            flash(f"Added '{name}' (qty {quantity}).", "success")
+            flash(f"Added “{name}” (qty {quantity}).", "success")
     except Exception as e:
+        app.logger.exception("[add_item] failed")
         flash(f"Failed to save item: {e}", "error")
 
     return redirect(url_for("index"))
+
 
 
 # 🛒 Sell Item
@@ -671,6 +776,8 @@ def add_item():
 def sell_item():
     if not is_logged_in():
         return redirect(url_for("login"))
+    if not check_csrf():
+        return redirect(url_for("index"))
 
     try:
         item_id = int(request.form["item_id"])
@@ -720,6 +827,8 @@ def sell_item():
 def return_sale(sale_id):
     if not is_logged_in():
         return redirect(url_for("login"))
+    if not check_csrf():
+        return redirect(url_for("index"))
     try:
         sale = db.db_one("SELECT id, item_id, qty FROM sales WHERE id=:id", {"id": sale_id})
         if not sale:
@@ -746,16 +855,20 @@ def return_sale(sale_id):
 
 # 🗑️ Delete a sale record (no restock)
 @app.post("/sales/<int:sale_id>/delete")
-def delete_sale(sale_id):
+def delete_sale(sale_id: int):
     if not is_logged_in():
         return redirect(url_for("login"))
+    if not check_csrf():
+        return redirect(url_for("index"))
+    if not db.db_one("SELECT 1 FROM sales WHERE id=:id", {"id": sale_id}):
+        flash("Sale record not found.", "error")
+        return redirect(url_for("index"))
     db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
-    flash("Sale record deleted.", "success")
+    flash("Sale record deleted.", "info")
     return redirect(url_for("index"))
 
-
-# ❌ Delete Item
-@app.get("/delete/<int:item_id>")
+# ❌ Delete Item (POST)
+@app.post("/delete/<int:item_id>")
 def delete_item(item_id):
     if not is_logged_in():
         return redirect(url_for("login"))
@@ -766,59 +879,86 @@ def delete_item(item_id):
 
 # ✏️ Edit Item
 @app.route("/edit/<int:item_id>", methods=["GET", "POST"])
-def edit_item(item_id):
+def edit_item(item_id: int):
     if not is_logged_in():
+        flash("Please log in.", "warning")
         return redirect(url_for("login"))
 
     if request.method == "POST":
+        if not check_csrf():
+            return redirect(url_for("edit_item", item_id=item_id))
+
+        # ---- Name ----
         name_raw = (request.form.get("name") or "").strip()
         if not name_raw:
-            flash("Name is required.", "error"); return redirect(url_for("edit_item", item_id=item_id))
-        name = name_raw.capitalize()
+            flash("Name is required.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+        name = re.sub(r"\s+", " ", name_raw).strip()[:100]
 
+        # ---- Quantity ----
         try:
             quantity = int((request.form.get("quantity") or "").strip())
         except Exception:
-            flash("Quantity must be a number.", "error"); return redirect(url_for("edit_item", item_id=item_id))
+            flash("Quantity must be a number.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
         if quantity < 0:
-            flash("Quantity must be ≥ 0.", "error"); return redirect(url_for("edit_item", item_id=item_id))
+            flash("Quantity must be ≥ 0.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
 
+        # ---- Prices (UI currency) ----
         try:
-            buying_price_ui  = parse_money(request.form.get("buying_price"))
-            selling_price_ui = parse_money(request.form.get("selling_price"))
-            bp_ui, sp_ui = float(buying_price_ui), float(selling_price_ui)
-        except Exception:
-            flash("Prices must be numeric.", "error"); return redirect(url_for("edit_item", item_id=item_id))
+            bp_ui = Decimal(str(parse_money(request.form.get("buying_price") or "0")))
+            sp_ui = Decimal(str(parse_money(request.form.get("selling_price") or "0")))
+        except (InvalidOperation, Exception):
+            flash("Prices must be numeric.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+
         if bp_ui < 0 or sp_ui < 0:
-            flash("Prices must be non-negative.", "error"); return redirect(url_for("edit_item", item_id=item_id))
+            flash("Prices must be non-negative.", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
+        if sp_ui < bp_ui:
+            flash("Warning: selling price is below buying price.", "warning")
 
+        # ---- Convert to DB base (UZS) ----
         try:
-            buying_price  = convert_amount(bp_ui, from_curr=get_curr(), to_curr=BASE_CCY)
-            selling_price = convert_amount(sp_ui, from_curr=get_curr(), to_curr=BASE_CCY)
+            buying_price  = Decimal(str(convert_amount(bp_ui, from_curr=get_curr(), to_curr=BASE_CCY)))
+            selling_price = Decimal(str(convert_amount(sp_ui, from_curr=get_curr(), to_curr=BASE_CCY)))
         except Exception as e:
-            flash(f"Currency conversion failed: {e}", "error"); return redirect(url_for("edit_item", item_id=item_id))
+            flash(f"Currency conversion failed: {e}", "error")
+            return redirect(url_for("edit_item", item_id=item_id))
 
+        # ---- Cast for SQLite ----
+        bp_db = float(buying_price)
+        sp_db = float(selling_price)
+
+        # ---- Update ----
         try:
             db.db_exec(
                 """
                 UPDATE inventory
-                   SET name=:n, buying_price=:bp, selling_price=:sp, quantity=:q
+                   SET name=:n,
+                       buying_price=:bp,
+                       selling_price=:sp,
+                       quantity=:q,
+                       updated_at=CURRENT_TIMESTAMP
                  WHERE id=:id
                 """,
-                {"n": name, "bp": buying_price, "sp": selling_price, "q": quantity, "id": item_id},
+                {"n": name, "bp": bp_db, "sp": sp_db, "q": quantity, "id": item_id},
             )
-            flash(f"Item '{name}' updated.", "success")
+            flash(f"Item “{name}” updated.", "success")
             return redirect(url_for("index"))
         except Exception as e:
+            app.logger.exception("[edit_item] failed")
             flash(f"Failed to update item: {e}", "error")
             return redirect(url_for("edit_item", item_id=item_id))
 
-    # GET
+    # ---- GET ----
     item = db.db_one("SELECT * FROM inventory WHERE id=:id", {"id": item_id})
     if not item:
-        flash("Item not found!", "error")
+        flash("Item not found.", "error")
         return redirect(url_for("index"))
     return render_template("edit.html", item=item)
+
 
 
 # 📊 API — Stock Overview (for advanced chart)
@@ -1063,6 +1203,8 @@ def api_geo():
 
 @app.post("/prefs")
 def set_prefs():
+    if not check_csrf():
+        return redirect(url_for("login"))
     lang = (request.form.get("lang") or DEFAULT_LANG).strip()
     curr = (request.form.get("curr") or DEFAULT_CURR).strip().upper()
     session["LANG"] = "uz" if lang == "uz" else "en"
@@ -1072,6 +1214,10 @@ def set_prefs():
 
 @app.post("/settings/currency")
 def set_currency():
+    if not is_logged_in():
+        return redirect(url_for("login"))
+    if not check_csrf():
+        return redirect(url_for("index"))
     cur = (request.form.get("currency") or DEFAULT_CURR).upper()
     if cur not in _SUPPORTED:
         flash("Unsupported currency.", "error")
@@ -1086,11 +1232,22 @@ def set_currency():
 # =========================
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # If already logged in, avoid showing the form again
+    if session.get("logged_in"):
+        flash("You are already logged in.", "info")
+        return redirect(url_for("index"))
+
     if request.method == "POST":
+        if not check_csrf():
+            return redirect(url_for("login"))
+
         username = (request.form.get("username") or "").strip().casefold()
         password = (request.form.get("password") or "").strip()
 
-        ok = ADMIN_USERS.get(username) == password
+        # Look up stored password (or an empty string) and compare in constant-time
+        stored = (ADMIN_USERS.get(username) or "")
+        ok = hmac.compare_digest(stored, password)
+
         if ok:
             session["logged_in"] = True
             session["user"] = username
@@ -1102,13 +1259,16 @@ def login():
         flash("Invalid username or password.", "error")
         return redirect(url_for("login"))
 
+    # GET
     return render_template("login.html", APP_VERSION=get_version())
 
 @app.get("/logout")
 def logout():
-    session.pop("logged_in", None)
-    session.pop("user", None)
-    flash("You’ve been logged out.", "success")
+    user = session.get("user")
+    session.clear()
+    if app.debug and user:
+        app.logger.info(f"[logout] user={user} logged out")
+    flash("You’ve been logged out.", "info")
     return redirect(url_for("login"))
 
 @app.get("/forgot")
@@ -1117,6 +1277,8 @@ def forgot_password():
 
 @app.post("/forgot")
 def forgot_password_post():
+    if not check_csrf():
+        return redirect(url_for("forgot_password"))
     email = (request.form.get("email") or "").strip()
     if not email:
         flash("Please enter your email.", "error")
@@ -1150,6 +1312,8 @@ def __admin_wipe():
     # dev-only guard: must be logged in AND in debug
     if not (app.debug and is_logged_in()):
         return "Forbidden", 403
+    if not check_csrf():
+        return redirect(url_for("index"))
     try:
         db.db_exec("DELETE FROM sales")
         db.db_exec("DELETE FROM inventory")
@@ -1180,6 +1344,21 @@ def __debug_sales_today():
         """
     row = db.db_one(q)
     return {"rows": row[0], "revenue_base": float(row[1] or 0), "profit_base": float(row[2] or 0)}
+
+
+@app.get("/test-flash")
+def test_flash():
+    flash_success("Success message")
+    flash_info("Info message")
+    flash_warn("Warning message")
+    flash_error("Error message")
+    return redirect(url_for("index"))
+
+
+# Optional 404 (use if you have templates/404.html)
+# @app.errorhandler(404)
+# def not_found(_):
+#     return render_template("404.html"), 404
 
 
 # =========================
