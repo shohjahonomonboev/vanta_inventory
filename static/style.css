@@ -1,5 +1,5 @@
 /* ===============================
-   Premium UI — Aurora Glass Theme (FINAL)
+   Premium UI — Aurora Glass Theme (FINAL ORIN)
    =============================== */
 
 /* Theme tokens */
@@ -25,6 +25,7 @@ body{
     radial-gradient(800px 500px at 110% 0%, rgba(34,197,94,.08), transparent 55%),
     var(--bg);
 }
+body.modal-open{ overflow:hidden; }
 .container{max-width:1100px;margin:0 auto}
 
 /* Cards & layout */
@@ -41,7 +42,7 @@ body{
 .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;font-size:.75rem;font-weight:700;line-height:1;border:1px solid var(--border);background:var(--card);color:var(--muted)}
 .badge-version{opacity:.85}
 
-/* Buttons */
+/* Buttons (site-wide) */
 .btn{display:inline-block;padding:10px 14px;border-radius:12px;font-weight:600;border:1px solid transparent;cursor:pointer;text-decoration:none}
 .btn-outline{background:transparent;color:var(--primary);border-color:var(--primary)}
 .btn-outline:hover{background:rgba(96,165,250,.12)}
@@ -51,61 +52,49 @@ body{
 .btn-green:hover{filter:brightness(.95)}
 .btn-primary{background:var(--primary);color:#fff;border:none;box-shadow:0 2px 0 rgba(0,0,0,.06)}
 .btn-primary:hover{background:var(--primary-600)}
+.btn-yellow{ background: var(--yellow); color:#111; }
+.btn-yellow:hover{ filter: brightness(.98); }
 
 /* === Action Buttons (Unified Premium Style) === */
 button,
 input[type="submit"],
-input[type="button"] {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-
-  padding: 10px 16px;
-  border-radius: 12px;
-  border: none;
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  text-decoration: none;
-
-  background: var(--primary);
-  color: #fff;
-  transition: background .2s, transform .15s;
-  box-shadow: 0 2px 4px rgba(0,0,0,.08);
+input[type="button"]{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:10px 16px; border-radius:12px; border:none;
+  font-weight:600; font-size:14px; cursor:pointer; text-decoration:none;
+  background:var(--primary); color:#fff;
+  transition:background .2s, transform .15s;
+  box-shadow:0 2px 4px rgba(0,0,0,.08);
 }
-
 button:hover,
 input[type="submit"]:hover,
-input[type="button"]:hover {
-  background: var(--primary-600);
-  transform: translateY(-1px);
-}
-
+input[type="button"]:hover{ background:var(--primary-600); transform:translateY(-1px); }
 button:active,
 input[type="submit"]:active,
-input[type="button"]:active {
-  transform: translateY(0);
+input[type="button"]:active{ transform:translateY(0); }
+/* Disabled states */
+button:disabled,
+input[type="submit"]:disabled,
+input[type="button"]:disabled,
+.btn:disabled{
+  opacity:.55; cursor:not-allowed; transform:none !important; box-shadow:none !important;
 }
+.btn-yellow:disabled{ filter:none; }
 
 /* Special Logout button */
 button.logout,
-a.logout {
-  background: var(--red) !important;
-  color: #fff !important;
-}
-
+a.logout{ background:var(--red) !important; color:#fff !important; }
 button.logout:hover,
-a.logout:hover {
-  filter: brightness(.95);
-}
-
+a.logout:hover{ filter:brightness(.95); }
 
 /* Forms */
 form{margin:14px 0 22px}
 .form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .form-col{display:flex;flex-direction:column;gap:10px;max-width:520px}
-input,select,button{padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text)}
+/* Inputs only (avoid styling <button> like inputs) */
+input,select{
+  padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text)
+}
 input:focus,select:focus{outline:2px solid rgba(96,165,250,.3);border-color:var(--primary)}
 
 /* KPIs */
@@ -126,7 +115,6 @@ tr:nth-child(even) td{background:rgba(255,255,255,.025)}
 .actions{display:flex;gap:10px}
 .actions a{padding:6px 8px;border-radius:8px;background:rgba(0,0,0,.08)}
 .actions a:hover{background:rgba(0,0,0,.15)}
-
 /* Sticky table header */
 thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shadow:0 2px 0 var(--border)}
 
@@ -191,14 +179,14 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
   border-radius:var(--radius); box-shadow:var(--shadow);
   padding:clamp(20px, 4vw, 36px); text-align:left;
 }
-.glass{backdrop-filter:saturate(140%) blur(10px)}
+.glass{-webkit-backdrop-filter:saturate(140%) blur(10px); backdrop-filter:saturate(140%) blur(10px)}
 
 .auth-title{margin:0 0 12px; text-align:center; font-size:clamp(22px,3.2vw,30px); font-weight:800}
 .auth-form{display:grid; gap:14px; margin-top:10px}
 
 .field{position:relative; display:grid; align-items:center}
 .field input{
-  width:100%; font-size:16px; line-height:1.25; /* prevent mobile zoom */
+  width:100%; font-size:16px; line-height:1.25;
   padding:14px 44px; background:var(--bg);
   border:1.5px solid var(--border); border-radius:14px;
   outline:none; transition:box-shadow .2s, border-color .2s, background .2s;
@@ -210,13 +198,14 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 .pw-toggle{position:absolute; inset-inline-end:8px; display:grid; place-items:center; width:36px; height:36px; border:none; background:transparent; cursor:pointer; color:#6b7280}
 
 .w-full{width:100%}
-.btn{
+/* Auth buttons scoped to auth card to avoid global collisions */
+.auth-card .btn{
   display:inline-flex; align-items:center; justify-content:center; gap:8px;
   padding:12px 16px; border-radius:12px; border:1px solid var(--border);
   background:#fff; color:var(--text); font-weight:600; text-decoration:none;
 }
-.btn-primary{background:var(--primary); color:#fff; border-color:var(--primary-600)}
-.btn-primary:hover{filter:brightness(.97)}
+.auth-card .btn-primary{background:var(--primary); color:#fff; border-color:var(--primary-600)}
+.auth-card .btn-primary:hover{filter:brightness(.97)}
 
 .auth-footer{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; font-size:14px; color:var(--muted)}
 .auth-footer a{color:var(--primary); text-decoration:underline}
@@ -234,4 +223,71 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
   body{padding:16px}
   .form-row{flex-direction:column}
   .auth-card{padding:20px}
+}
+
+/* ────────────────────────────────────────────── */
+/* Admin Password Modal + Utilities */
+/* ────────────────────────────────────────────── */
+.modal{
+  position:fixed; inset:0; z-index:1000;
+  display:none; justify-content:center; align-items:center;
+  background: rgba(0,0,0,.55);
+}
+.modal.show{ display:flex; }
+.modal-content{
+  width:min(420px, 94vw);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  backdrop-filter: saturate(140%) blur(10px);
+}
+.close{ float:right; font-size:20px; cursor:pointer; opacity:.8; }
+.close:hover{ opacity:1; }
+
+/* Password field & eye toggle */
+.password-field{ position:relative; }
+.password-field input[type="password"],
+.password-field input[type="text"]{
+  width:100%; padding:12px 42px 12px 12px;
+  border-radius:12px; border:2px solid var(--border);
+  background:var(--card); color:var(--text);
+}
+.toggle-eye{
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  border:0; background:transparent; cursor:pointer; font-size:16px; line-height:1; opacity:.8;
+}
+.toggle-eye:hover{ opacity:1; }
+.toggle-eye:focus-visible{
+  outline:2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  border-radius:8px;
+}
+
+/* Color helpers for modal title, borders and glow */
+.text-red{ color: var(--red); }
+.text-blue{ color: var(--primary); }
+.text-green{ color: var(--green); }
+.input-red{ border-color: var(--red) !important; }
+.input-blue{ border-color: var(--primary) !important; }
+.input-green{ border-color: var(--green) !important; }
+.glow-red{  box-shadow: 0 0 20px color-mix(in srgb, var(--red) 55%, transparent), 0 5px 20px rgba(0,0,0,.28); }
+.glow-blue{ box-shadow: 0 0 20px color-mix(in srgb, var(--primary) 55%, transparent), 0 5px 20px rgba(0,0,0,.28); }
+.glow-green{box-shadow: 0 0 20px color-mix(in srgb, var(--green) 55%, transparent), 0 5px 20px rgba(0,0,0,.28); }
+
+/* Lockout message */
+#lockoutMsg{ font-weight:700; color: var(--muted); }
+
+/* Wrong password wiggle */
+@keyframes shake {
+  0%{transform:translateX(0)} 20%{transform:translateX(-6px)} 40%{transform:translateX(6px)}
+  60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} 100%{transform:translateX(0)}
+}
+.shake{ animation: shake .4s; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce){
+  *{ transition:none !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; }
+  .shake{ animation:none !important; }
 }

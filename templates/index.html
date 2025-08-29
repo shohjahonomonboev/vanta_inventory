@@ -192,9 +192,8 @@
 
       const openMenu = () => {
         menu.classList.remove('hidden');
-        // restart a-pop animation each open
         menu.classList.remove('a-pop');
-        void menu.offsetWidth; // reflow
+        void menu.offsetWidth;
         menu.classList.add('a-pop');
         btn.setAttribute('aria-expanded', 'true');
       };
@@ -243,11 +242,7 @@
           <td>{{ (it[5] | ccy) | fmtmoney }}</td>
           <td>
             <a href="{{ url_for('edit_item', item_id=it[0]) }}" class="btn">{{ t('edit') or 'Edit' }}</a>
-            <form action="{{ url_for('delete_item', item_id=it[0]) }}" method="post" style="display:inline"
-                  onsubmit="return confirm('{{ t('confirm_delete') or 'Delete this item?' }}')">
-              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-              <button class="btn btn-red" type="submit">{{ t('delete') or 'Delete' }}</button>
-            </form>
+            <!-- Delete removed here by request -->
           </td>
         </tr>
       {% else %}
@@ -277,16 +272,36 @@
           <td>{{ s[4] | ccy | fmtmoney }}</td>
           <td>{{ s[5] | ccy | fmtmoney }}</td>
           <td class="actions">
-            <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
-              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-              <button class="btn btn-yellow" type="submit">{{ t('return') or 'Return' }}</button>
-            </form>
-            <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline"
-                  onsubmit="return confirm('{{ t('confirm_delete_sale') or 'Delete sale record?' }}')">
-              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-              <button class="btn btn-red" type="submit">{{ t('delete') or 'Delete' }}</button>
-            </form>
-          </td>
+  <!-- Return sale (inline admin password) -->
+  <form method="POST"
+        action="{{ url_for('return_sale', sale_id=s[0]) }}"
+        style="display:inline">
+    <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+    <input type="password"
+           name="admin_password"
+           placeholder="Admin password"
+           required
+           aria-label="Admin password"
+           autocomplete="current-password"
+           style="width:140px;margin-right:6px;">
+    <button class="btn btn-yellow" type="submit">{{ t('return') or 'Return' }}</button>
+  </form>
+
+  <!-- Delete sale (inline admin password) -->
+  <form method="POST"
+        action="{{ url_for('delete_sale', sale_id=s[0]) }}"
+        style="display:inline">
+    <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+    <input type="password"
+           name="admin_password"
+           placeholder="Admin password"
+           required
+           aria-label="Admin password"
+           autocomplete="current-password"
+           style="width:140px;margin-right:6px;">
+    <button class="btn btn-red" type="submit">{{ t('delete') or 'Delete' }}</button>
+  </form>
+</td>
         </tr>
       {% else %}
         <tr><td colspan="6" style="text-align:center; opacity:.7">{{ t('no_sales') or 'No sales yet.' }}</td></tr>
@@ -345,7 +360,7 @@
   const el = document.getElementById("stockOverview");
   if (!el) return;
   const ctx = el.getContext("2d");
-  const wrap = el.closest(".chart-reveal"); // for motion reveal
+  const wrap = el.closest(".chart-reveal");
   const currency = "{{ CURRENCY }}";
   const T = {{ {"quantity": t("quantity"), "stock_value": t("stock_value")} | tojson }};
   let stockData = [];

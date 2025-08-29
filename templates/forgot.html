@@ -7,7 +7,7 @@
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        <div class="flash-stack">
+        <div class="flash-stack" role="status" aria-live="polite">
           {% for cat, msg in messages %}
             <div class="flash {{ cat }}">{{ msg }}</div>
           {% endfor %}
@@ -15,18 +15,23 @@
       {% endif %}
     {% endwith %}
 
-    <form method="POST" action="{{ url_for('forgot_password_post') }}" class="auth-form" novalidate>
+    <form method="POST" action="{{ url_for('forgot_password_post') }}" class="auth-form" autocomplete="on">
+      <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+
       <label class="field">
         <span class="field-icon"><i class="fa-regular fa-envelope"></i></span>
-        <input type="email"
-               name="email"
-               placeholder="you@example.com"
-               autocomplete="email"
-               required
-               autofocus>
+        <input
+          type="email"
+          name="email"
+          placeholder="you@example.com"
+          inputmode="email"
+          autocomplete="email"
+          required
+          autofocus
+          aria-label="Email address">
       </label>
 
-      <button type="submit" class="btn btn-primary w-full">Send reset link</button>
+      <button type="submit" class="btn btn-primary w-full" id="sendBtn">Send reset link</button>
 
       <div class="auth-footer">
         <a href="{{ url_for('login') }}">Back to login</a>
@@ -35,4 +40,17 @@
     </form>
   </div>
 </div>
+
+<script>
+  // Prevent double-submits and give quick feedback
+  (function(){
+    const form = document.querySelector('.auth-form');
+    const btn  = document.getElementById('sendBtn');
+    if (!form || !btn) return;
+    form.addEventListener('submit', function(){
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+    });
+  })();
+</script>
 {% endblock %}

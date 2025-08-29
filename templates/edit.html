@@ -5,11 +5,11 @@
 <h1>Edit Item &#x1F6E0;&#xFE0F;</h1>
 <p class="subtitle">Vanta Inventory System</p>
 
-<form method="POST" class="form-col card edit-form">
-  <!-- Keep hidden id so backend can use it if needed -->
+<form method="POST" action="{{ url_for('edit_item', item_id=item[0]) }}" class="form-col card edit-form">
+  <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
   <input type="hidden" name="id" value="{{ item[0] }}"/>
 
-  <!-- item: [0]=id, [1]=name, [2]=buy, [3]=sell, [4]=quantity -->
+  <!-- item: [0]=id, [1]=name, [2]=buy (UZS), [3]=sell (UZS), [4]=quantity -->
 
   <label for="name">Item Name</label>
   <input id="name" type="text" name="name" placeholder="Item Name" value="{{ item[1] }}" required autocomplete="off" />
@@ -26,8 +26,7 @@
     pattern="[\d,]*"
     autocomplete="off"
     placeholder="Buying Price ({{ CURRENCY }})"
-    value="{{ (item[2] | ccy) | fmtmoney }}"   {# buying #}
-    value="{{ (item[3] | ccy) | fmtmoney }}"   {# selling #}
+    value="{{ (item[2] | ccy) | money }}"
     required />
 
   <label for="sell">Selling Price ({{ CURRENCY }})</label>
@@ -45,7 +44,15 @@
     required />
 
   <label for="qty">Quantity</label>
-  <input id="qty" type="number" name="quantity" placeholder="Quantity" value="{{ item[4] }}" min="0" required />
+  <input id="qty" type="number" name="quantity" placeholder="Quantity" value="{{ item[4] }}" min="0" inputmode="numeric" pattern="\d*" required />
+
+  <!-- Admin password (server enforces for EDIT) -->
+  <label for="admin_password">Admin Password</label>
+  <div class="password-field">
+    <input id="admin_password" type="password" name="admin_password" placeholder="••••••••" required autocomplete="current-password">
+    <button type="button" id="toggleEye" class="toggle-eye" aria-label="Show password" aria-pressed="false">👁️</button>
+  </div>
+  <small id="lockoutMsg" class="muted" style="display:none"></small>
 
   <div class="form-row form-actions">
     <button type="submit" class="btn btn-primary" id="saveBtn">Update</button>
@@ -53,7 +60,102 @@
   </div>
 </form>
 
-<!-- Live input money formatter (unchanged logic; just scoped) -->
+<!-- Quick Actions: Delete with its own admin_password -->
+<section class="card" style="padding:16px;margin-top:12px">
+  <h3>Quick Actions</h3>
+
+  <form id="deleteForm"
+        method="POST"
+        action="{{ url_for('delete_item', item_id=item[0]) }}"
+        class="form-row"
+        onsubmit="return confirm('Delete this item permanently? This cannot be undone.');"
+        style="gap:10px;align-items:center;flex-wrap:wrap">
+    <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+
+    <!-- Dedicated password for DELETE -->
+    <label for="qa_admin_pw" class="sr-only">Admin password</label>
+    <div class="password-field">
+      <input id="qa_admin_pw"
+             type="password"
+             name="admin_password"
+             placeholder="Admin password"
+             required
+             autocomplete="current-password"
+             style="width:180px">
+      <button type="button" id="qa_toggle" class="toggle-eye" aria-label="Show password" aria-pressed="false">👁️</button>
+    </div>
+
+    <button class="btn btn-red" type="submit">Delete Item</button>
+  </form>
+</section>
+
+<script>
+(function(){
+  // Show/hide eye for the Quick Actions password
+  const pw = document.getElementById('qa_admin_pw');
+  const tg = document.getElementById('qa_toggle');
+  if (pw && tg) {
+    tg.addEventListener('click', ()=>{
+      const show = pw.type !== 'text';
+      pw.type = show ? 'text' : 'password';
+      tg.setAttribute('aria-pressed', show ? 'true' : 'false');
+      tg.textContent = show ? '🙈' : '👁️';
+    });
+  }
+
+  // If the session is currently locked, disable the delete controls
+  fetch('/admin/lockout', {cache:'no-store', credentials:'same-origin'})
+    .then(r=>r.json()).then(j=>{
+      const rem = j.remaining || 0;
+      if (rem > 0) {
+        pw.disabled = true;
+        document.querySelector('#deleteForm button[type="submit"]').disabled = true;
+      }
+    }).catch(()=>{});
+})();
+</script>
+
+
+<!-- Lockout banner (reads /admin/lockout) -->
+<script>
+(async function(){
+  const msg = document.getElementById('lockoutMsg');
+  const pw  = document.getElementById('admin_password');
+  const btn = document.getElementById('saveBtn');
+  if (!msg || !pw || !btn) return;
+
+  function setLocked(remain){
+    const locked = remain > 0;
+    msg.style.display = locked ? 'inline' : 'none';
+    if (locked){
+      msg.textContent = `⏳ Locked: ${remain}s`;
+      pw.disabled = true; btn.disabled = true;
+    } else {
+      pw.disabled = false; btn.disabled = false;
+    }
+  }
+
+  async function poll(){
+    try{
+      const r = await fetch("/admin/lockout", {cache:"no-store", credentials:"same-origin"});
+      const j = await r.json();
+      let remain = j.remaining || 0;
+      setLocked(remain);
+      if (remain > 0){
+        const timer = setInterval(()=>{
+          remain--;
+          setLocked(remain);
+          if (remain <= 0) clearInterval(timer);
+        }, 1000);
+      }
+    }catch(e){ /* ignore */ }
+  }
+
+  poll();
+})();
+</script>
+
+<!-- Live input money formatter (scoped) -->
 <script>
 (function () {
   const form = document.currentScript.closest('form');

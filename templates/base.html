@@ -61,7 +61,6 @@
   {% if request.endpoint not in AUTH_PAGES %}
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-      <!-- Final Orin flash area: animated + accessible + auto-dismiss -->
       <div class="flash-area container a-up" role="status" aria-live="polite">
         {% for category, msg in messages %}
           <div class="flash toast {{ category }}">{{ msg }}</div>
@@ -100,86 +99,220 @@
   <!-- Motion JS (after content) -->
   <script src="{{ url_for('static', filename='motion.js') }}" defer></script>
 
-<script>
-  // expose token to JS
-  window.CSRF_TOKEN = "{{ CSRF_TOKEN }}";
+  <!-- CSRF helpers (consolidated) -->
+  <script>
+    (function () {
+      const token = "{{ CSRF_TOKEN }}";
+      window.CSRF_TOKEN = token;
 
-  // 1) Auto-inject hidden CSRF input into every POST form (including ones added later)
-  (function injectCsrfIntoForms(){
-    function ensureToken(form){
-      if (!form || form.__csrfBound) return;
-      const method = (form.getAttribute('method') || '').toUpperCase();
-      if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
-        if (!form.querySelector('input[name="_csrf"]')) {
-          const i = document.createElement('input');
-          i.type = 'hidden'; i.name = '_csrf'; i.value = window.CSRF_TOKEN;
-          form.appendChild(i);
+      function ensureCsrf(form) {
+        if (!form || form.__csrfBound) return;
+        const method = (form.getAttribute('method') || 'get').toUpperCase();
+        if (['POST','PUT','PATCH','DELETE'].includes(method)) {
+          if (!form.querySelector('input[name="_csrf"]')) {
+            const i = document.createElement('input');
+            i.type = 'hidden'; i.name = '_csrf'; i.value = token;
+            form.appendChild(i);
+          }
+          form.__csrfBound = true;
         }
-        form.__csrfBound = true;
       }
-    }
-    const scan = () => document.querySelectorAll('form').forEach(ensureToken);
-    document.addEventListener('DOMContentLoaded', scan);
-    // Watch for dynamically inserted forms
-    new MutationObserver(() => scan()).observe(document.documentElement, { childList: true, subtree: true });
-  })();
+      const scan = () => document.querySelectorAll('form').forEach(ensureCsrf);
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan); else scan();
+      new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
 
-  // 2) Auto-attach header for fetch() on unsafe methods
-  (function wrapFetch(){
-    const raw = window.fetch;
-    window.fetch = function(input, init = {}){
-      const req = new Request(input, init);
-      const unsafe = ['POST','PUT','PATCH','DELETE'].includes(req.method.toUpperCase());
-      if (unsafe) {
-        const hdrs = new Headers(req.headers || {});
-        if (!hdrs.has('X-CSRF-Token')) hdrs.set('X-CSRF-Token', window.CSRF_TOKEN);
-        init.headers = hdrs;
-      }
-      return raw(input, init);
-    };
-  })();
-</script>
+      const _fetch = window.fetch;
+      window.fetch = function (input, init = {}) {
+        const req = new Request(input, init);
+        const unsafe = ['POST','PUT','PATCH','DELETE'].includes((req.method || 'GET').toUpperCase());
+        if (unsafe) {
+          const headers = new Headers(init.headers || req.headers || {});
+          if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', token);
+          init.headers = headers;
+        }
+        return _fetch(input, init);
+      };
+    })();
+  </script>
 
-  <!-- Final Orin flash auto-dismiss -->
+  <!-- Flash auto-dismiss -->
   <script>
     (function(){
       const flashes = document.querySelectorAll('.flash-area .flash');
       flashes.forEach((el, i) => {
-        const life = 3000 + i * 500;          // stagger lifetimes
+        const life = 3000 + i * 500;
         setTimeout(() => el.classList.add('hide'), life);
         setTimeout(() => el.remove(), life + 500);
       });
     })();
   </script>
 
-<script>
-(() => {
-  const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-  if (!token) return;
+  <!-- ───────────────────────────────────────────────────────────── -->
+  <!-- 🔐 Global Admin Password Modal + Hooks                       -->
+  <!-- ───────────────────────────────────────────────────────────── -->
+  <div id="adminModal" class="modal" style="display:none;">
+    <div id="adminModalBox" class="modal-content">
+      <span class="close" id="adminModalClose" aria-label="Close">&times;</span>
+      <h3 id="adminModalTitle">Enter Admin Password</h3>
+      <p id="adminModalDesc"></p>
+      <p id="lockoutMsg" style="display:none;margin:6px 0 0;"></p>
+      <form id="adminForm" method="POST">
+        <div class="password-field">
+          <input id="adminPasswordInput" type="password" placeholder="Password" required aria-label="Admin password" autocomplete="current-password">
+          <button id="toggleEye" type="button" class="toggle-eye" aria-label="Show password" aria-pressed="false">👁️</button>
+        </div>
+        <button id="adminConfirmBtn" type="submit" class="btn">Confirm</button>
+      </form>
+    </div>
+  </div>
 
-  // Auto-inject hidden _csrf into ALL POST forms (even ones created later)
-  document.addEventListener('submit', (e) => {
-    const f = e.target;
-    if (!f || f.tagName !== 'FORM') return;
-    const m = (f.getAttribute('method') || 'get').toLowerCase();
-    if (m !== 'post') return;
-    if (!f.querySelector('input[name="_csrf"]')) {
-      const i = document.createElement('input');
-      i.type = 'hidden'; i.name = '_csrf'; i.value = token;
-      f.appendChild(i);
-    }
-  }, true);
+  <style>
+    .modal { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.6); display: none; justify-content: center; align-items: center; }
+    .modal.show { display: flex; }
+    .modal-content { background: var(--card); padding: 20px; border-radius: 12px; min-width: 300px; box-shadow: 0 5px 20px rgba(0,0,0,.3); }
+    .close { float:right; font-size:20px; cursor:pointer; }
+    .password-field { position:relative; }
+    .password-field input[type="password"], .password-field input[type="text"] { width:100%; padding:8px 40px 8px 10px; border-radius:8px; outline:none; margin-bottom:12px; border:2px solid var(--border); background:var(--card); color:var(--text); }
+    .toggle-eye { position:absolute; right:10px; top:50%; transform:translateY(-50%); border:0; background:transparent; cursor:pointer; font-size:16px; line-height:1; opacity:.75; }
+    .toggle-eye:hover { opacity:1; }
+    .text-red{color:var(--red)} .text-blue{color:var(--primary)} .text-green{color:var(--green)}
+    .glow-red{ box-shadow:0 0 20px rgba(239,68,68,.6), 0 5px 20px rgba(0,0,0,.3) }
+    .glow-blue{ box-shadow:0 0 20px rgba(37,99,235,.6), 0 5px 20px rgba(0,0,0,.3) }
+    .glow-green{ box-shadow:0 0 20px rgba(16,185,129,.6), 0 5px 20px rgba(0,0,0,.3) }
+    .input-red{border-color:var(--red)!important} .input-blue{border-color:var(--primary)!important} .input-green{border-color:var(--green)!important}
+    @keyframes shake { 0%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}100%{transform:translateX(0)} }
+    .shake{animation:shake .4s}
+  </style>
 
-  // Also tag all fetch() calls with the header, for AJAX posts
-  const _fetch = window.fetch;
-  window.fetch = function(url, opts = {}) {
-    const headers = new Headers(opts.headers || {});
-    if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', token);
-    return _fetch(url, { ...opts, headers });
-  };
-})();
-</script>
+  <script>
+    (function(){
+      let pendingForm = null;
+      let lockoutTimer = null;
 
+      function setPasswordVisible(v){
+        const inp = document.getElementById("adminPasswordInput");
+        const tgl = document.getElementById("toggleEye");
+        inp.type = v ? "text" : "password";
+        tgl.setAttribute("aria-pressed", v ? "true" : "false");
+        tgl.textContent = v ? "🙈" : "👁️";
+      }
+
+      function openAdminModal(actionType, itemName){
+        const modal = document.getElementById("adminModal");
+        const box   = document.getElementById("adminModalBox");
+        const title = document.getElementById("adminModalTitle");
+        const desc  = document.getElementById("adminModalDesc");
+        const btn   = document.getElementById("adminConfirmBtn");
+        const input = document.getElementById("adminPasswordInput");
+        const msg   = document.getElementById("lockoutMsg");
+
+        box.className="modal-content"; title.className=""; btn.className="btn"; input.className="";
+        if (actionType === "delete"){ title.classList.add("text-red");   box.classList.add("glow-red");   btn.classList.add("btn-red");   input.classList.add("input-red");   title.textContent="Confirm Deletion"; desc.textContent=`Delete: ${itemName}?`; }
+        else if (actionType === "return"){ title.classList.add("text-green"); box.classList.add("glow-green"); btn.classList.add("btn-green"); input.classList.add("input-green"); title.textContent="Confirm Return"; desc.textContent=`Return: ${itemName}?`; }
+        else { title.classList.add("text-blue"); box.classList.add("glow-blue"); title.textContent="Enter Admin Password"; desc.textContent=""; }
+
+        setPasswordVisible(false);
+        input.value = "";
+        msg.style.display = "none";
+        msg.textContent = "";
+
+        modal.classList.add("show");
+        checkLockoutAndUpdate();
+      }
+
+      function closeAdminModal(){
+        document.getElementById("adminModal").classList.remove("show");
+        clearInterval(lockoutTimer);
+      }
+
+      document.getElementById("toggleEye")?.addEventListener("click", ()=>{
+        const inp = document.getElementById("adminPasswordInput");
+        setPasswordVisible(inp.type !== "text");
+      });
+      document.getElementById("adminModalClose")?.addEventListener("click", closeAdminModal);
+      document.getElementById("adminModal")?.addEventListener("click",(e)=>{ if(e.target===e.currentTarget) closeAdminModal(); });
+      document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") closeAdminModal(); });
+
+      async function fetchLockoutRemaining(){
+        try{ const r=await fetch("/admin/lockout",{cache:"no-store",credentials:"same-origin"}); const j=await r.json(); return j.remaining||0; }
+        catch{ return 0; }
+      }
+      function setLockedUI(remain){
+        const btn=document.getElementById("adminConfirmBtn");
+        const inp=document.getElementById("adminPasswordInput");
+        const msg=document.getElementById("lockoutMsg");
+        if(remain>0){ btn.disabled=true; inp.disabled=true; msg.style.display="block"; msg.textContent=`⏳ Locked: ${remain}s`; }
+        else{ btn.disabled=false; inp.disabled=false; msg.style.display="none"; msg.textContent=""; }
+      }
+      function startCountdown(n){
+        clearInterval(lockoutTimer); let remain=n; setLockedUI(remain);
+        lockoutTimer=setInterval(()=>{ remain-=1; if(remain<=0){ clearInterval(lockoutTimer); setLockedUI(0);} else setLockedUI(remain); },1000);
+      }
+      async function checkLockoutAndUpdate(){
+        const remain=await fetchLockoutRemaining();
+        if(remain>0) startCountdown(remain); else setLockedUI(0);
+      }
+
+      // Modal submit -> inject hidden admin_password then submit original form
+      document.getElementById("adminForm")?.addEventListener("submit", function(e){
+        e.preventDefault();
+        const btn=document.getElementById("adminConfirmBtn");
+        if(btn.disabled) return;
+        if(!pendingForm){ closeAdminModal(); return; }
+        const pw=document.getElementById("adminPasswordInput").value || "";
+        let hid=pendingForm.querySelector('input[name="admin_password"]');
+        if(!hid){ hid=document.createElement("input"); hid.type="hidden"; hid.name="admin_password"; pendingForm.appendChild(hid); }
+        hid.value=pw;
+        closeAdminModal();
+        pendingForm.submit();
+      });
+
+      function nameFromRow(form){
+        const row=form.closest("tr");
+        const cell=row?.querySelector("td:nth-child(2)");
+        return (cell?.textContent || "").trim() || "this item";
+      }
+
+      function hookProtectedForms(){
+        const forms = Array.from(document.querySelectorAll('form.needs-admin'));
+        // Add pattern hooks too (defensive)
+        forms.push(...document.querySelectorAll('form[action^="/delete/"]:not([action*="/sales/"])'));
+        forms.push(...document.querySelectorAll('form[action*="/sales/"][action$="/return"]'));
+        forms.push(...document.querySelectorAll('form[action*="/sales/"][action$="/delete"]'));
+        forms.push(...document.querySelectorAll('form[action*="/items/"][action$="/return"]'));
+
+        forms.forEach(form=>{
+          // avoid double-binding
+          if (form.__adminBound) return;
+          form.__adminBound = true;
+
+          form.addEventListener("submit", function(ev){
+            // If the form already has a filled admin_password, let it post.
+            const existing = form.querySelector('input[name="admin_password"]');
+            if (existing && existing.value.trim() !== '') return;
+
+            ev.preventDefault();
+            pendingForm = form;
+
+            const act = (form.getAttribute("action") || "");
+            let type = "auth";
+            if (act.includes("/delete")) type = "delete";
+            else if (act.includes("/return")) type = "return";
+
+            openAdminModal(type, nameFromRow(form));
+          }, {capture:true});
+        });
+      }
+
+      if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", hookProtectedForms);
+      else hookProtectedForms();
+
+      // Fallback: prompt if modal fails to show for any reason
+      window.addEventListener('error', () => {
+        // noop; the forms will still post if user typed a password field present
+      });
+    })();
+  </script>
 
   {% block body_end %}{% endblock %}
 </body>

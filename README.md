@@ -74,3 +74,30 @@ $env:ADMIN_USERS = "vanta:beastmode,jasur:jasur2025"
 
 # 4) Run (Windows-friendly server)
 waitress-serve --listen=127.0.0.1:5000 app:app
+
+
+# Jasurbek Inventory — Release Notes
+
+## Version
+- Tag: {{TAG}}  
+- Date: {{DATE_UTC}}
+
+## What’s new
+- CSRF: global guard + auto-injected tokens (forms & fetch)
+- SQLite: Decimal adapter + explicit float casts
+- Currency/i18n: clean formatting & conversion pipeline
+- Excel export: dual-currency columns, totals, conditional formatting
+- Security headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy
+
+## Fixes
+- Resolved NameError on `check_csrf`
+- Removed `decimal.Decimal` binding error for SQLite
+- Route hardening & flash message polish
+
+## DevOps
+- Version stamping + annotated tag
+- Local DB removed from git; added to `.gitignore`
+
+## Upgrade notes
+- Ensure `SECRET_KEY` and `DATABASE_URL` are set in prod.
+- If using SQLite in prod, mount a persistent disk.
