@@ -1,17 +1,17 @@
-# app.py — Vanta Inventory (FINAL, merged, advanced)
+# app.py — Vanta Inventory (FINAL BEAST, Orin-patched)
 
 # ── Stdlib
 import os, io, time, json, zipfile, logging, sys, re, hmac, secrets
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urlparse
+from datetime import datetime, date, timedelta
+
 # Make sqlite accept Decimal transparently
 try:
     import sqlite3
     sqlite3.register_adapter(Decimal, float)
 except Exception:
     pass
-
-from urllib.parse import urlparse
-from datetime import datetime, date, timedelta
 
 # ── Third-party
 import requests
@@ -22,10 +22,10 @@ from flask import (
     session, flash, send_file, jsonify, g
 )
 
-# Optional Babel for pretty money format (fallback below)
+# Optional Babel for pretty money format
 try:
     from babel.numbers import format_currency as _format_currency
-except Exception:  # fallback if babel not installed
+except Exception:  # fallback if Babel not installed
     def _format_currency(value, currency, locale=None):
         try:
             return f"{float(value or 0):,.2f} {currency}"
@@ -33,21 +33,22 @@ except Exception:  # fallback if babel not installed
             return f"{value} {currency}"
 
 # ── Local modules
-# db_all/sql, db_one, db_exec, DATABASE_URL
 import database_sqlalchemy as db
 from database_sqlalchemy import ensure_schema
 from i18n import t  # translation helper
 
 # ── App config
 OFFLINE = os.getenv("OFFLINE", "0").lower() in ("1", "true", "yes")
+ENV = os.getenv("ENV", "dev").lower()
+IS_DEV = (ENV == "dev")
 
-def _parse_date(s: str) -> date | None:
+def _parse_date(s: str):
     try:
         return datetime.strptime(s, "%Y-%m-%d").date()
     except Exception:
         return None
 
-# Flash helpers (clean categories everywhere)
+# Flash helpers
 def flash_success(msg): flash(msg, "success")
 def flash_error(msg):   flash(msg, "error")
 def flash_info(msg):    flash(msg, "info")
@@ -58,9 +59,6 @@ def flash_warn(msg):    flash(msg, "warning")
 # =========================
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-only-change-me")
-
-ENV = os.getenv("ENV", "dev").lower()
-IS_DEV = (ENV == "dev")
 
 app.config.update(
     DEBUG=IS_DEV,
@@ -85,7 +83,7 @@ app.logger.addHandler(handler)
 app.logger.setLevel(logging.INFO)
 
 # =========================
-# Security headers (both envs)
+# Security headers
 # =========================
 @app.after_request
 def secure_headers(resp):
@@ -98,8 +96,61 @@ def secure_headers(resp):
     )
     return resp
 
+@app.route("/__debug/check_admin_pw", methods=["GET", "POST"])
+def __debug_check_admin_pw():
+    if not IS_DEV or not is_logged_in():
+        return "Forbidden", 403
+
+    if request.method == "POST":
+        sent = (
+            (request.form.get("pw"))
+            or ((request.is_json and request.json.get("pw")) or "")
+            or ""
+        )
+        sent = str(sent).strip()
+        ok = hmac.compare_digest(ADMIN_ACTION_PASSWORD, sent)
+        return jsonify({
+            "ok": bool(ok),
+            "entered_len": len(sent or ""),
+            "configured_len": len(ADMIN_ACTION_PASSWORD or ""),
+            "gate_on": bool(ADMIN_ACTION_PASSWORD)
+        })
+
+    return """
+      <form method="post">
+        <input type="password" name="pw" placeholder="Enter admin password" />
+        <button type="submit">Test</button>
+      </form>
+    """, 200
+
+
+@app.get("/__debug/admin_gate_status")
+def __debug_admin_gate_status():
+    if not is_logged_in():
+        return "Login required", 401
+    st, remain = _lock_state()
+    src = (
+        "ADMIN_ACTION_PASSWORD" if os.getenv("ADMIN_ACTION_PASSWORD")
+        else "ORIN_ADMIN_PASSWORD" if os.getenv("ORIN_ADMIN_PASSWORD")
+        else "ORIN_PASSWORD" if os.getenv("ORIN_PASSWORD")
+        else "DEFAULT:changeme"
+    )
+    return jsonify({
+        "gate_on": bool(ADMIN_ACTION_PASSWORD),
+        "configured_len": len(ADMIN_ACTION_PASSWORD or ""),
+        "source_env": src,
+        "locked_remaining_seconds": remain,
+        "fails": st.get("fails", 0),
+        "env_samples": {
+            "ADMIN_ACTION_PASSWORD": bool(os.getenv("ADMIN_ACTION_PASSWORD")),
+            "ORIN_ADMIN_PASSWORD":  bool(os.getenv("ORIN_ADMIN_PASSWORD")),
+            "ORIN_PASSWORD":        bool(os.getenv("ORIN_PASSWORD")),
+        }
+    })
+
+
 # =========================
-# Global prod error page (dev shows full tracebacks)
+# Global prod error page
 # =========================
 if not IS_DEV:
     @app.errorhandler(Exception)
@@ -115,10 +166,34 @@ if not IS_DEV:
 with app.app_context():
     try:
         ensure_schema()
+        # Ensure admin_logs table
+        try:
+            if db.DATABASE_URL.startswith("sqlite"):
+                db.db_exec("""
+                    CREATE TABLE IF NOT EXISTS admin_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        action TEXT,
+                        item TEXT,
+                        success INTEGER,
+                        ts TEXT
+                    )
+                """)
+            else:
+                db.db_exec("""
+                    CREATE TABLE IF NOT EXISTS admin_logs (
+                        id SERIAL PRIMARY KEY,
+                        action TEXT,
+                        item TEXT,
+                        success INTEGER,
+                        ts TEXT
+                    )
+                """)
+            app.logger.info("✅ admin_logs table ensured.")
+        except Exception:
+            app.logger.exception("⚠️ Failed to ensure admin_logs table")
         app.logger.info("✅ Database schema ensured at startup.")
     except Exception:
         app.logger.exception("⚠️ Failed to ensure schema")
-
 
 # =========================
 # Version / Health
@@ -129,7 +204,7 @@ def get_version():
         val = open("VERSION", encoding="utf-8").read().strip()
     except Exception:
         pass
-    if not val or len(val) < 3:  # covers "", "v"
+    if not val or len(val) < 3:
         val = os.getenv("APP_VERSION", "").strip()
     if not val or len(val) < 3:
         val = "v1.0.0"
@@ -143,12 +218,9 @@ def inject_version():
 def __health():
     return jsonify(status="ok", version=get_version()), 200
 
-
 # =========================
-# CSRF (single source of truth)
+# CSRF
 # =========================
-import hmac, secrets
-
 def _csrf_token():
     tok = session.get("_csrf")
     if not tok:
@@ -161,20 +233,13 @@ def _inject_csrf():
     return {"CSRF_TOKEN": _csrf_token()}
 
 def check_csrf() -> bool:
-    """
-    Route-level CSRF helper so existing calls don't crash.
-    Mirrors the logic in _csrf_protect(), but returns a boolean
-    instead of producing a response.
-    """
     expected = session.get("_csrf", "")
     sent = request.form.get("_csrf") or request.headers.get("X-CSRF-Token") or ""
     ok = bool(expected) and hmac.compare_digest(expected, sent)
     if not ok:
-        # keep it quiet; the route decides what to do
         flash("Security check failed. Please retry.", "error")
         return False
     return True
-
 
 @app.before_request
 def _csrf_protect():
@@ -189,7 +254,6 @@ def _csrf_protect():
                 return jsonify({"error": "CSRF validation failed"}), 400
             flash("Security check failed. Please retry.", "error")
             return redirect(request.referrer or url_for("index"))
-
 
 # =========================
 # Currency / i18n helpers
@@ -221,7 +285,6 @@ def fmt_money(value, curr=None, lang=None):
 _FX_CACHE = {"rates": None, "ts": 0}
 
 def _fetch_usd_rates():
-    # Always return something usable
     if OFFLINE:
         return {"USD": 1.0, "AED": 3.6725, "UZS": 12600.0}
 
@@ -274,7 +337,6 @@ def _fetch_usd_rates():
     _FX_CACHE.update({"rates": rates, "ts": time.time()})
     return rates
 
-
 def _derive_rates_from_usd(base):
     R = _fetch_usd_rates()
     base = (base or "USD").upper()
@@ -300,18 +362,16 @@ def convert_amount(value, from_curr=None, to_curr=None):
     to_curr   = (to_curr or get_curr()).upper()
     if from_curr == to_curr:
         return v
-
     R = _fetch_usd_rates()
     if from_curr not in R or to_curr not in R:
         return v
-
     amount_usd = v / float(R[from_curr])
     return amount_usd * float(R[to_curr])
 
 def fmt_money_auto(value, from_curr=None):
     return fmt_money(convert_amount(value, from_curr=from_curr, to_curr=get_curr()))
 
-# Money parsing helpers (for “1,234” inputs)
+# Money helpers (for “1,234” inputs)
 def money_plain(v, decimals=0):
     try:
         v = float(str(v).replace(",", ""))
@@ -324,7 +384,6 @@ def parse_money(s):
         return float(str(s).replace(",", "").strip() or 0)
     except ValueError:
         return 0.0
-
 
 # =========================
 # Auth (hardened)
@@ -365,6 +424,121 @@ def is_logged_in():
 def is_admin_user():
     return (session.get("user") or "").casefold() in ADMIN_ADMINS
 
+# --- Admin action password / lockout (SINGLE SOURCE OF TRUTH) ---
+ADMIN_ACTION_PASSWORD = (
+    os.getenv("ADMIN_ACTION_PASSWORD")
+    or os.getenv("ORIN_ADMIN_PASSWORD")
+    or os.getenv("ORIN_PASSWORD")
+    or "changeme"  # not empty, so the gate is ON by default
+).strip()
+
+# ▼▼▼ Added: admin-gate helpers that were referenced but not defined ▼▼▼
+def _lock_state():
+    st = session.get("_admin_gate")
+    if not isinstance(st, dict):
+        st = {"fails": 0, "lock_until": 0}
+    now = int(time.time())
+    remain = max(0, int(st.get("lock_until", 0)) - now)
+    return st, remain
+
+def _lock_fail():
+    st, remain = _lock_state()
+    now = int(time.time())
+    st["fails"] = int(st.get("fails", 0)) + 1
+    # progressive lock: after 3+ fails, lock for 60s * fails (cap 10min)
+    if st["fails"] >= 3:
+        st["lock_until"] = now + min(600, 60 * st["fails"])
+    session["_admin_gate"] = st
+
+def _lock_clear():
+    session["_admin_gate"] = {"fails": 0, "lock_until": 0}
+
+def _admin_pw_ok(sent: str) -> bool:
+    # If gate password is empty, gate is OFF
+    if not ADMIN_ACTION_PASSWORD:
+        return True
+    try:
+        return hmac.compare_digest(ADMIN_ACTION_PASSWORD, sent or "")
+    except Exception:
+        return False
+# ▲▲▲ End helpers ▲▲▲
+
+def require_admin_action_pw() -> bool:
+    # lockout check
+    st, remain = _lock_state()
+    if remain > 0:
+        flash(f"Admin actions locked. Try again in {remain}s.", "error")
+        app.logger.warning(f"[admin_gate] locked: remaining={remain}s fails={st.get('fails')}")
+        return False
+
+    # collect candidate sent password
+    sent = (
+        request.form.get("admin_password")
+        or request.form.get("admin_pw")
+        or request.form.get("password")
+        or request.headers.get("X-Admin-Password")
+        or request.args.get("admin_password")    # last resort (debug)
+        or request.values.get("apw")             # last resort (debug)
+        or ""
+    )
+    sent = str(sent).strip()
+
+    # lookup current user's stored login password (case-insensitive key)
+    user_key = (session.get("user") or "").casefold()
+    user_pw  = ADMIN_USERS.get(user_key, "")
+
+    # log sources (never the actual password)
+    app.logger.info("[admin_gate] sources: %s", {
+        "form_admin_password": "admin_password" in request.form,
+        "form_admin_pw": "admin_pw" in request.form,
+        "form_password": "password" in request.form,
+        "header": bool(request.headers.get("X-Admin-Password")),
+        "query": ("admin_password" in request.args) or ("apw" in request.args),
+        "len": len(sent or ""),
+        "user": user_key,
+        "has_user_pw": bool(user_pw),
+    })
+
+    # accept if matches either the env gate OR the logged-in user's login password
+    ok = _admin_pw_ok(sent) or hmac.compare_digest(user_pw, sent or "")
+
+    if not ok:
+        _lock_fail()
+        st2, rem2 = _lock_state()
+        app.logger.warning(f"[admin_gate] bad password (fails={st2['fails']} remain={rem2}s)")
+        flash("Admin password incorrect.", "error")
+        return False
+
+    _lock_clear()
+    return True
+
+
+
+def _admin_log(action: str, item: str, success: int):
+    try:
+        db.db_exec(
+            "INSERT INTO admin_logs (action, item, success, ts) VALUES (:a,:i,:s,:t)",
+            {"a": action, "i": item, "s": int(success), "t": datetime.utcnow().isoformat()}
+        )
+    except Exception:
+        app.logger.exception("[admin_log] failed")
+
+@app.get("/admin/lockout")
+def admin_lockout():
+    _, remain = _lock_state()
+    return jsonify({"remaining": remain})
+
+# Quick unlock for your session (requires login)
+@app.get("/admin/unlock")
+def admin_unlock():
+    if not is_logged_in():
+        return redirect(url_for("login"))
+    _lock_clear()
+    flash("Admin lock cleared for this session.", "info")
+    return redirect(url_for("index"))
+
+# Log gate status at boot (no secret leak)
+app.logger.info("[config] Admin gate: %s (len=%d)", "ON" if ADMIN_ACTION_PASSWORD else "OFF", len(ADMIN_ACTION_PASSWORD))
 
 # =========================
 # Jinja filters / context
@@ -382,7 +556,6 @@ def ccy(amount):
 def fmtmoney(amount):
     return fmt_money(amount, curr=get_curr(), lang=get_lang())
 
-# extra helpers for tables
 @app.template_filter("comma")
 def comma(x):
     try:
@@ -397,6 +570,13 @@ def moneyfmt(x, currency=""):
     except Exception:
         return x
 
+@app.template_filter("money")
+def money_filter(v):
+    try:
+        return money_plain(v, decimals=0)
+    except Exception:
+        return v
+
 @app.context_processor
 def inject_helpers():
     lang = get_lang()
@@ -409,15 +589,6 @@ def inject_helpers():
         "CURRENCY": get_curr(),
         "t": lambda key, _lang=None: t(key, lang if _lang is None else _lang),
     }
-
-@app.template_filter("money")
-def money_filter(v):
-    # show plain number with thousand separators, no currency symbol
-    try:
-        return money_plain(v, decimals=0)
-    except Exception:
-        return v
-
 
 # =========================
 # Data access
@@ -443,7 +614,6 @@ def get_inventory():
         {"c": BASE_CCY},
     )
     return [tuple(r) for r in rows]
-
 
 # =========================
 # Pages / Routes
@@ -684,7 +854,6 @@ def index():
         usd_to_uzs=usd_to_uzs,
     )
 
-
 # ➕ Add Item (UPSERT by name)
 @app.post("/add")
 def add_item():
@@ -769,8 +938,6 @@ def add_item():
 
     return redirect(url_for("index"))
 
-
-
 # 🛒 Sell Item
 @app.post("/sell")
 def sell_item():
@@ -805,7 +972,6 @@ def sell_item():
 
     profit = (sell_price - buy_price) * qty
 
-    # record sale + reduce stock (timestamp = now)
     db.db_exec(
         """
         INSERT INTO sales (item_id, qty, sell_price, profit, sold_at)
@@ -821,22 +987,25 @@ def sell_item():
     flash(f"Sold {qty} unit(s). Profit: {fmt_money(profit)}", "success")
     return redirect(url_for("index"))
 
-
-# ↩️ Return sale (restock + remove record)
+# ↩️ Return sale (restock + remove record) — PASSWORD PROTECTED
 @app.post("/sales/<int:sale_id>/return")
 def return_sale(sale_id):
-    if not is_logged_in():
-        return redirect(url_for("login"))
-    if not check_csrf():
-        return redirect(url_for("index"))
+    if not is_logged_in(): return redirect(url_for("login"))
+    if not check_csrf():   return redirect(url_for("index"))
+    if not require_admin_action_pw(): return redirect(url_for("index"))
+
     try:
         sale = db.db_one("SELECT id, item_id, qty FROM sales WHERE id=:id", {"id": sale_id})
         if not sale:
             flash("Sale not found.", "error"); return redirect(url_for("index"))
 
+        item_row = db.db_one("SELECT name FROM inventory WHERE id=:id", {"id": sale[1]})
+        item_name = item_row[0] if item_row else "unknown"
+
         qty = int(sale[2] or 0)
         if qty <= 0:
             db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
+            _admin_log("return", item_name, 1)
             flash("Sale removed (no quantity to return).", "warning")
             return redirect(url_for("index"))
 
@@ -844,41 +1013,93 @@ def return_sale(sale_id):
         if not inv:
             flash("Linked inventory item not found.", "error"); return redirect(url_for("index"))
 
-        db.db_exec("UPDATE inventory SET quantity = quantity + :q WHERE id = :id",
-                   {"q": qty, "id": sale[1]})
+        db.db_exec("UPDATE inventory SET quantity = quantity + :q WHERE id = :id", {"q": qty, "id": sale[1]})
         db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
+        _admin_log("return", item_name, 1)
         flash("Item returned to inventory and sale removed.", "success")
     except Exception as e:
+        app.logger.exception("[return_sale] failed")
         flash(f"Return failed: {e}", "error")
     return redirect(url_for("index"))
 
-
-# 🗑️ Delete a sale record (no restock)
+# 🗑️ Delete a sale record (no restock) — PASSWORD PROTECTED
 @app.post("/sales/<int:sale_id>/delete")
 def delete_sale(sale_id: int):
-    if not is_logged_in():
-        return redirect(url_for("login"))
-    if not check_csrf():
-        return redirect(url_for("index"))
+    if not is_logged_in(): return redirect(url_for("login"))
+    if not check_csrf():   return redirect(url_for("index"))
+    if not require_admin_action_pw(): return redirect(url_for("index"))
+
     if not db.db_one("SELECT 1 FROM sales WHERE id=:id", {"id": sale_id}):
         flash("Sale record not found.", "error")
         return redirect(url_for("index"))
+
     db.db_exec("DELETE FROM sales WHERE id=:id", {"id": sale_id})
+    _admin_log("sale_delete", f"id={sale_id}", 1)
     flash("Sale record deleted.", "info")
     return redirect(url_for("index"))
 
-# ❌ Delete Item (POST)
+# ❌ Delete Item — PASSWORD PROTECTED
 @app.post("/delete/<int:item_id>")
 def delete_item(item_id):
-    if not is_logged_in():
-        return redirect(url_for("login"))
-    db.db_exec("DELETE FROM inventory WHERE id = :id", {"id": item_id})
-    flash("Item deleted successfully!", "warning")
+    if not is_logged_in(): return redirect(url_for("login"))
+    if not check_csrf():   return redirect(url_for("index"))
+    if not require_admin_action_pw(): return redirect(url_for("index"))
+
+    row = db.db_one("SELECT name FROM inventory WHERE id=:id", {"id": item_id})
+    name = row[0] if row else "unknown"
+
+    db.db_exec("DELETE FROM inventory WHERE id=:id", {"id": item_id})
+    _admin_log("delete", name, 1)
+    flash(f"Item deleted successfully — {name}!", "warning")
     return redirect(url_for("index"))
 
 
-# ✏️ Edit Item
-@app.route("/edit/<int:item_id>", methods=["GET", "POST"])
+# REST alias for delete → same behavior, easier templating
+@app.post("/items/<int:item_id>/delete")
+def delete_item_alias(item_id: int):
+    return delete_item(item_id)
+
+# ✅ Return to stock (restock; PASSWORD-PROTECTED)
+@app.post("/items/<int:item_id>/return")
+def return_item(item_id: int):
+    if not is_logged_in(): return redirect(url_for("login"))
+    if not check_csrf():   return redirect(url_for("index"))
+    if not require_admin_action_pw(): return redirect(url_for("index"))
+
+    try:
+        amt = int((request.form.get("amount") or "1").strip())
+    except Exception:
+        amt = 0
+    if amt <= 0:
+        flash("Return amount must be greater than 0.", "error")
+        return redirect(url_for("index"))
+
+    # ensure item exists
+    row = db.db_one("SELECT name FROM inventory WHERE id=:id", {"id": item_id})
+    if not row:
+        flash("Item not found.", "error")
+        return redirect(url_for("index"))
+    item_name = row[0]
+
+    db.db_exec("UPDATE inventory SET quantity = quantity + :q WHERE id=:id", {"q": amt, "id": item_id})
+
+    # (optional but recommended) admin audit log
+    try:
+        _admin_log("restock_return", item_name, 1)
+    except Exception:
+        pass
+
+    flash(f"Returned {amt} unit(s) to stock for “{item_name}”.", "success")
+
+    # go back to edit if requested
+    if (request.form.get("ref") or "") == "edit":
+        return redirect(url_for("edit_item", item_id=item_id))
+    return redirect(url_for("index"))
+
+
+
+# ✏️ Edit Item — PASSWORD CHECK ON POST
+@app.route("/edit/<int:item_id>", methods=["GET","POST"])
 def edit_item(item_id: int):
     if not is_logged_in():
         flash("Please log in.", "warning")
@@ -887,15 +1108,16 @@ def edit_item(item_id: int):
     if request.method == "POST":
         if not check_csrf():
             return redirect(url_for("edit_item", item_id=item_id))
+        if not require_admin_action_pw():
+            return redirect(url_for("edit_item", item_id=item_id))
 
-        # ---- Name ----
+        # --- Read + validate fields ---
         name_raw = (request.form.get("name") or "").strip()
         if not name_raw:
             flash("Name is required.", "error")
             return redirect(url_for("edit_item", item_id=item_id))
         name = re.sub(r"\s+", " ", name_raw).strip()[:100]
 
-        # ---- Quantity ----
         try:
             quantity = int((request.form.get("quantity") or "").strip())
         except Exception:
@@ -905,21 +1127,19 @@ def edit_item(item_id: int):
             flash("Quantity must be ≥ 0.", "error")
             return redirect(url_for("edit_item", item_id=item_id))
 
-        # ---- Prices (UI currency) ----
         try:
             bp_ui = Decimal(str(parse_money(request.form.get("buying_price") or "0")))
             sp_ui = Decimal(str(parse_money(request.form.get("selling_price") or "0")))
         except (InvalidOperation, Exception):
             flash("Prices must be numeric.", "error")
             return redirect(url_for("edit_item", item_id=item_id))
-
         if bp_ui < 0 or sp_ui < 0:
             flash("Prices must be non-negative.", "error")
             return redirect(url_for("edit_item", item_id=item_id))
         if sp_ui < bp_ui:
             flash("Warning: selling price is below buying price.", "warning")
 
-        # ---- Convert to DB base (UZS) ----
+        # Convert UI → DB (UZS)
         try:
             buying_price  = Decimal(str(convert_amount(bp_ui, from_curr=get_curr(), to_curr=BASE_CCY)))
             selling_price = Decimal(str(convert_amount(sp_ui, from_curr=get_curr(), to_curr=BASE_CCY)))
@@ -927,11 +1147,9 @@ def edit_item(item_id: int):
             flash(f"Currency conversion failed: {e}", "error")
             return redirect(url_for("edit_item", item_id=item_id))
 
-        # ---- Cast for SQLite ----
         bp_db = float(buying_price)
         sp_db = float(selling_price)
 
-        # ---- Update ----
         try:
             db.db_exec(
                 """
@@ -945,6 +1163,7 @@ def edit_item(item_id: int):
                 """,
                 {"n": name, "bp": bp_db, "sp": sp_db, "q": quantity, "id": item_id},
             )
+            _admin_log("edit", name, 1)
             flash(f"Item “{name}” updated.", "success")
             return redirect(url_for("index"))
         except Exception as e:
@@ -952,19 +1171,16 @@ def edit_item(item_id: int):
             flash(f"Failed to update item: {e}", "error")
             return redirect(url_for("edit_item", item_id=item_id))
 
-    # ---- GET ----
+    # GET
     item = db.db_one("SELECT * FROM inventory WHERE id=:id", {"id": item_id})
     if not item:
         flash("Item not found.", "error")
         return redirect(url_for("index"))
     return render_template("edit.html", item=item)
 
-
-
 # 📊 API — Stock Overview (for advanced chart)
 @app.get("/api/stock/overview")
 def api_stock_overview():
-    # Return JSON; 401 if not logged in so UI can show empty gracefully
     if not is_logged_in():
         return jsonify({"items": [], "low_threshold": 5, "totals": {"qty": 0, "value": 0.0}}), 401
 
@@ -1004,8 +1220,7 @@ def api_stock_overview():
         "totals": {"qty": totals_qty, "value": totals_value},
     })
 
-
-# 📊 Export to Excel (dual currency) — polished formatting
+# 📊 Export to Excel (dual currency)
 @app.get("/export")
 def export_excel():
     if not is_logged_in():
@@ -1039,7 +1254,7 @@ def export_excel():
     for c, h in enumerate(headers, start=1):
         cell = sh.cell(row=start_row, column=c, value=h)
         cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="2563EB")  # premium blue header
+        cell.fill = PatternFill("solid", fgColor="2563EB")
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     sh.freeze_panes = f"A{start_row+1}"
@@ -1105,7 +1320,6 @@ def export_excel():
     return send_file(buf, as_attachment=True, download_name=fname,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-
 # 📦 Data backup (ZIP of CSVs, Postgres)
 @app.get("/admin/backup")
 def admin_backup():
@@ -1166,7 +1380,6 @@ def admin_backup():
     fname = f"vanta_inventory_backup_{ts}.zip"
     return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=fname)
 
-
 # =========================
 # Prefs & small APIs
 # =========================
@@ -1186,7 +1399,6 @@ def api_rates():
 
 @app.get("/api/geo")
 def api_geo():
-    # Always 200 so the UI doesn't break
     if OFFLINE:
         return jsonify({"country": "US", "languages": "en", "_note": "offline default"})
 
@@ -1198,18 +1410,20 @@ def api_geo():
             raise ValueError("bad geo json")
         return jsonify(j)
     except Exception as e:
-        # Fallback and keep status 200
         return jsonify({"country": "US", "languages": "en", "_note": "fallback", "_error": str(e)})
 
 @app.post("/prefs")
 def set_prefs():
     if not check_csrf():
         return redirect(url_for("login"))
-    lang = (request.form.get("lang") or DEFAULT_LANG).strip()
-    curr = (request.form.get("curr") or DEFAULT_CURR).strip().upper()
-    session["LANG"] = "uz" if lang == "uz" else "en"
-    session["CURR"] = curr if curr in _SUPPORTED else DEFAULT_CURR
-    flash(t("preferences_saved", session["LANG"]), "success")
+    # Only set what was actually submitted
+    lang = (request.form.get("lang") or "").strip()
+    if lang:
+        session["LANG"] = "uz" if lang == "uz" else "en"
+    curr = (request.form.get("curr") or "").strip().upper()
+    if curr and curr in _SUPPORTED:
+        session["CURR"] = curr
+    flash(t("preferences_saved", session.get("LANG", DEFAULT_LANG)), "success")
     return redirect(url_for("login"))
 
 @app.post("/settings/currency")
@@ -1226,13 +1440,11 @@ def set_currency():
     flash(f"Currency set to {cur}.", "success")
     return redirect(url_for("index"))
 
-
 # =========================
 # Auth pages (hardened)
 # =========================
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    # If already logged in, avoid showing the form again
     if session.get("logged_in"):
         flash("You are already logged in.", "info")
         return redirect(url_for("index"))
@@ -1244,7 +1456,6 @@ def login():
         username = (request.form.get("username") or "").strip().casefold()
         password = (request.form.get("password") or "").strip()
 
-        # Look up stored password (or an empty string) and compare in constant-time
         stored = (ADMIN_USERS.get(username) or "")
         ok = hmac.compare_digest(stored, password)
 
@@ -1259,7 +1470,6 @@ def login():
         flash("Invalid username or password.", "error")
         return redirect(url_for("login"))
 
-    # GET
     return render_template("login.html", APP_VERSION=get_version())
 
 @app.get("/logout")
@@ -1287,7 +1497,9 @@ def forgot_password_post():
     flash("If that email exists, we’ve sent reset instructions.", "success")
     return redirect(url_for("login"))
 
-
+# =========================
+# Debug helpers
+# =========================
 @app.get("/__debug/now")
 def __debug_now():
     using_sqlite = db.DATABASE_URL.startswith("sqlite")
@@ -1309,7 +1521,6 @@ def __debug_sales():
 
 @app.post("/__admin/wipe")
 def __admin_wipe():
-    # dev-only guard: must be logged in AND in debug
     if not (app.debug and is_logged_in()):
         return "Forbidden", 403
     if not check_csrf():
@@ -1318,7 +1529,6 @@ def __admin_wipe():
         db.db_exec("DELETE FROM sales")
         db.db_exec("DELETE FROM inventory")
         if db.DATABASE_URL.startswith("sqlite"):
-            # shrink file
             db.db_exec("VACUUM")
         flash("Local DB wiped.", "success")
     except Exception as e:
@@ -1345,7 +1555,6 @@ def __debug_sales_today():
     row = db.db_one(q)
     return {"rows": row[0], "revenue_base": float(row[1] or 0), "profit_base": float(row[2] or 0)}
 
-
 @app.get("/test-flash")
 def test_flash():
     flash_success("Success message")
@@ -1354,12 +1563,22 @@ def test_flash():
     flash_error("Error message")
     return redirect(url_for("index"))
 
-
-# Optional 404 (use if you have templates/404.html)
-# @app.errorhandler(404)
-# def not_found(_):
-#     return render_template("404.html"), 404
-
+# =========================
+# Admin Logs page
+# =========================
+@app.get("/admin/logs")
+def admin_logs():
+    if not is_logged_in():
+        return redirect(url_for("login"))
+    rows = db.db_all("SELECT id, action, item, success, ts FROM admin_logs ORDER BY ts DESC LIMIT 100")
+    logs = [{
+        "id": r[0],
+        "action": r[1],
+        "item": r[2],
+        "success": bool(r[3]),
+        "ts": str(r[4])
+    } for r in rows]
+    return render_template("admin_logs.html", logs=logs)
 
 # =========================
 # Dev entry
