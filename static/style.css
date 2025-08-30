@@ -1,17 +1,48 @@
 /* ===============================
-   Premium UI — Aurora Glass Theme (FINAL ORIN)
+   Vanta — Aurora Glass (Tiffany Luxe)
    =============================== */
 
 /* Theme tokens */
 :root[data-theme="light"]{
-  --bg:#f6f7fb; --card:#ffffff; --text:#111827; --muted:#6b7280; --border:#e5e7eb;
-  --primary:#2563eb; --primary-600:#1d4ed8; --green:#16a34a; --cyan:#06b6d4; --yellow:#f59e0b; --red:#ef4444;
-  --grid:rgba(0,0,0,.08); --shadow:0 10px 30px rgba(17,24,39,.08); --radius:16px;
+  --bg:#f7fafb;            /* airy backdrop */
+  --card:#ffffffcc;        /* soft glass */
+  --text:#0f172a;          /* slate-900 */
+  --muted:#667085;         /* slate-500/600 */
+  --border:#e6e8ef;
+
+  /* Tiffany palette */
+  --primary:#15c2bc;       /* tiffany */
+  --primary-600:#0ea5a2;   /* deeper teal */
+  --primary-50:#e6fbfa;
+  --gold:#d4af37;          /* luxe accent */
+  --green:#20c997;
+  --cyan:#06b6d4;
+  --yellow:#f1c40f;
+  --red:#ef4444;
+
+  --grid:rgba(3, 7, 18, .06);
+  --shadow:0 10px 30px rgba(2,6,23,.07);
+  --radius:16px;
 }
 :root[data-theme="dark"]{
-  --bg:#0b1220; --card:rgba(17,24,39,.65); --text:#e5e7eb; --muted:#9aa2b2; --border:#1f2937;
-  --primary:#60a5fa; --primary-600:#3b82f6; --green:#34d399; --cyan:#22d3ee; --yellow:#fbbf24; --red:#f87171;
-  --grid:rgba(255,255,255,.08); --shadow:0 12px 34px rgba(0,0,0,.45); --radius:16px;
+  --bg:#0b1220;
+  --card:rgba(17,24,39,.65);
+  --text:#e5e7eb;
+  --muted:#9aa2b2;
+  --border:#1f2937;
+
+  --primary:#5ad9d3;        /* softened Tiffany */
+  --primary-600:#37c5be;
+  --primary-50:#12343f;
+  --gold:#d4af37;
+  --green:#34d399;
+  --cyan:#22d3ee;
+  --yellow:#fbbf24;
+  --red:#f87171;
+
+  --grid:rgba(255,255,255,.06);
+  --shadow:0 12px 34px rgba(0,0,0,.45);
+  --radius:16px;
 }
 
 /* Base */
@@ -19,20 +50,26 @@
 html,body{height:100%}
 body{
   margin:0; padding:28px;
-  font-family:'Inter',system-ui,Segoe UI,Arial,sans-serif; color:var(--text);
+  font-family: 'Inter', system-ui, Segoe UI, Arial, sans-serif;
+  color:var(--text);
   background:
-    radial-gradient(900px 600px at -10% -10%, rgba(96,165,250,.12), transparent 60%),
-    radial-gradient(800px 500px at 110% 0%, rgba(34,197,94,.08), transparent 55%),
+    radial-gradient(900px 600px at -10% -10%, color-mix(in srgb, var(--primary) 15%, transparent), transparent 60%),
+    radial-gradient(800px 500px at 110% 0%, color-mix(in srgb, var(--green) 10%, transparent), transparent 55%),
     var(--bg);
 }
 body.modal-open{ overflow:hidden; }
-.container{max-width:1100px;margin:0 auto}
+.container{ max-width:1100px; margin:0 auto }
 
 /* Cards & layout */
-.card{background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
-.topbar{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; margin-bottom:18px; backdrop-filter:blur(8px)}
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  backdrop-filter:saturate(130%) blur(8px);
+}
+.topbar{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; margin-bottom:18px}
 .brand{display:flex; gap:10px; align-items:center; font-weight:700}
-.cube{filter: drop-shadow(0 2px 6px rgba(0,0,0,.15))}
 .muted{color:var(--muted); font-weight:600}
 .subtitle{color:var(--muted); margin:.25rem 0 1rem}
 .actions-row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
@@ -42,60 +79,71 @@ body.modal-open{ overflow:hidden; }
 .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;font-size:.75rem;font-weight:700;line-height:1;border:1px solid var(--border);background:var(--card);color:var(--muted)}
 .badge-version{opacity:.85}
 
-/* Buttons (site-wide) */
-.btn{display:inline-block;padding:10px 14px;border-radius:12px;font-weight:600;border:1px solid transparent;cursor:pointer;text-decoration:none}
-.btn-outline{background:transparent;color:var(--primary);border-color:var(--primary)}
-.btn-outline:hover{background:rgba(96,165,250,.12)}
-.btn-red{background:var(--red); color:#fff}
-.btn-red:hover{filter:brightness(.95)}
-.btn-green{background:var(--green);color:#fff}
-.btn-green:hover{filter:brightness(.95)}
-.btn-primary{background:var(--primary);color:#fff;border:none;box-shadow:0 2px 0 rgba(0,0,0,.06)}
-.btn-primary:hover{background:var(--primary-600)}
-.btn-yellow{ background: var(--yellow); color:#111; }
-.btn-yellow:hover{ filter: brightness(.98); }
-
-/* === Action Buttons (Unified Premium Style) === */
-button,
-input[type="submit"],
-input[type="button"]{
+/* ───────── Buttons (compact, pill by default) ───────── */
+.btn{
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
-  padding:10px 16px; border-radius:12px; border:none;
-  font-weight:600; font-size:14px; cursor:pointer; text-decoration:none;
-  background:var(--primary); color:#fff;
-  transition:background .2s, transform .15s;
-  box-shadow:0 2px 4px rgba(0,0,0,.08);
+  padding:6px 12px;            /* smaller by default */
+  min-height:30px;
+  border-radius:999px;         /* pill */
+  border:1px solid transparent;
+  font-weight:600; font-size:13.5px;
+  line-height:1;
+  cursor:pointer; text-decoration:none;
+  transition:background .18s ease, border-color .18s ease, transform .12s ease;
 }
-button:hover,
-input[type="submit"]:hover,
-input[type="button"]:hover{ background:var(--primary-600); transform:translateY(-1px); }
-button:active,
-input[type="submit"]:active,
-input[type="button"]:active{ transform:translateY(0); }
-/* Disabled states */
-button:disabled,
-input[type="submit"]:disabled,
-input[type="button"]:disabled,
-.btn:disabled{
-  opacity:.55; cursor:not-allowed; transform:none !important; box-shadow:none !important;
-}
-.btn-yellow:disabled{ filter:none; }
+.btn:active{ transform:translateY(0) }
 
-/* Special Logout button */
-button.logout,
-a.logout{ background:var(--red) !important; color:#fff !important; }
-button.logout:hover,
-a.logout:hover{ filter:brightness(.95); }
+/* size modifiers */
+.btn-xs{ padding:4px 10px; min-height:26px; font-size:12.5px; }
+.btn-sm{ padding:6px 12px; min-height:30px; font-size:13.5px; }
+.btn-md{ padding:8px 14px; min-height:34px; font-size:14px; }
+.btn-lg{ padding:10px 16px; min-height:38px; font-size:15px; }
+
+/* variants */
+.btn-primary{
+  background:var(--primary); color:#fff; border:none; box-shadow:0 1px 0 rgba(2,6,23,.06);
+}
+.btn-primary:hover{ background:var(--primary-600) }
+
+.btn-outline{
+  background:transparent; color:var(--primary);
+  border-color:var(--primary);
+}
+.btn-outline:hover{ background:color-mix(in srgb, var(--primary) 12%, transparent) }
+
+.btn-ghost{
+  background:transparent; color:var(--muted);
+  border:1px solid var(--border);
+}
+.btn-ghost:hover{ background:rgba(0,0,0,.05) }
+:root[data-theme="dark"] .btn-ghost:hover{ background:rgba(255,255,255,.06) }
+
+.btn-green{ background:var(--green); color:#fff }
+.btn-green:hover{ filter:brightness(.95) }
+.btn-yellow{ background:var(--yellow); color:#111 }
+.btn-yellow:hover{ filter:brightness(.98) }
+.btn-red{ background:var(--red); color:#fff }
+.btn-red:hover{ filter:brightness(.95) }
+
+.btn:disabled{ opacity:.55; cursor:not-allowed; transform:none !important; box-shadow:none !important; }
+
+/* anchor buttons normalize */
+a.btn{ display:inline-flex; align-items:center; justify-content:center; }
+
+/* Focus ring */
+.btn:focus-visible{
+  outline: 3px solid color-mix(in oklab, var(--primary) 30%, transparent);
+  outline-offset: 3px;
+}
 
 /* Forms */
 form{margin:14px 0 22px}
 .form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .form-col{display:flex;flex-direction:column;gap:10px;max-width:520px}
-/* Inputs only (avoid styling <button> like inputs) */
 input,select{
   padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text)
 }
-input:focus,select:focus{outline:2px solid rgba(96,165,250,.3);border-color:var(--primary)}
+input:focus,select:focus{outline:2px solid color-mix(in srgb, var(--primary) 35%, transparent);border-color:var(--primary)}
 
 /* KPIs */
 .kpis{display:flex;justify-content:center;gap:16px;margin:10px 0 22px;flex-wrap:wrap}
@@ -110,12 +158,11 @@ table{width:100%;border-collapse:collapse}
 thead th{background:linear-gradient(180deg,rgba(255,255,255,.04),transparent)}
 th,td{padding:12px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
 th a{text-decoration:none;color:inherit}
-tr:hover td{background:rgba(96,165,250,.06)}
-tr:nth-child(even) td{background:rgba(255,255,255,.025)}
+tr:hover td{background:rgba(2,6,23,.03)}
+tr:nth-child(even) td{background:rgba(255,255,255,.02)}
 .actions{display:flex;gap:10px}
-.actions a{padding:6px 8px;border-radius:8px;background:rgba(0,0,0,.08)}
-.actions a:hover{background:rgba(0,0,0,.15)}
-/* Sticky table header */
+.actions a{padding:6px 8px;border-radius:8px;background:rgba(0,0,0,.06)}
+.actions a:hover{background:rgba(0,0,0,.1)}
 thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shadow:0 2px 0 var(--border)}
 
 /* Charts */
@@ -128,8 +175,8 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 .chart-controls form{display:inline-flex;align-items:center;gap:10px;flex-wrap:nowrap!important;margin:0}
 .chart-controls a,.chart-controls button,.chart-controls label,.chart-controls span{flex:0 0 auto!important;min-width:auto!important}
 
-/* Control buttons (Excel/Backup/Restore) */
-.control-btn,.btn-like{display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:10px;border:0;cursor:pointer;text-decoration:none;color:#fff;font-weight:600}
+/* Control buttons */
+.control-btn,.btn-like{display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border-radius:10px;border:0;cursor:pointer;text-decoration:none;color:#fff;font-weight:600}
 .green-btn{background:var(--green)} .blue-btn{background:var(--primary)} .orange-btn{background:var(--yellow);color:#111} .red-btn{background:var(--red)}
 .green-btn:hover,.blue-btn:hover,.red-btn:hover{filter:brightness(.95)}
 .orange-btn:hover{filter:brightness(.98)}
@@ -148,7 +195,7 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 @keyframes vantaFlashFade{to{opacity:0}}
 .flash-stack{ display:grid; gap:8px; margin: 8px 0 4px; }
 
-/* Tooltip (for section titles like “Add Item”) */
+/* Tooltip */
 .section-title{display:flex; align-items:center; gap:8px}
 .info{
   position:relative; display:inline-grid; place-items:center;
@@ -164,14 +211,14 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 .info:hover::after,.info:focus::after{opacity:1; transform:translateY(0)}
 @media (max-width:600px){ .section-title{gap:6px} }
 
-/* ===== Auth Pages (Login / Forgot) ===== */
+/* ===== Auth Pages ===== */
 .auth-wrap{
   min-height: calc(100dvh - 120px);
   display:flex; align-items:center; justify-content:center;
   padding: clamp(16px, 3vw, 32px);
   background:
-    radial-gradient(900px 600px at -10% -10%, rgba(96,165,250,.10), transparent 60%),
-    radial-gradient(800px 500px at 110% 0%, rgba(34,197,94,.06), transparent 55%),
+    radial-gradient(900px 600px at -10% -10%, color-mix(in srgb, var(--primary) 12%, transparent), transparent 60%),
+    radial-gradient(800px 500px at 110% 0%, color-mix(in srgb, var(--green) 8%, transparent), transparent 55%),
     var(--bg);
 }
 .auth-card{
@@ -198,12 +245,7 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 .pw-toggle{position:absolute; inset-inline-end:8px; display:grid; place-items:center; width:36px; height:36px; border:none; background:transparent; cursor:pointer; color:#6b7280}
 
 .w-full{width:100%}
-/* Auth buttons scoped to auth card to avoid global collisions */
-.auth-card .btn{
-  display:inline-flex; align-items:center; justify-content:center; gap:8px;
-  padding:12px 16px; border-radius:12px; border:1px solid var(--border);
-  background:#fff; color:var(--text); font-weight:600; text-decoration:none;
-}
+.auth-card .btn{ padding:10px 14px; border-radius:12px; }
 .auth-card .btn-primary{background:var(--primary); color:#fff; border-color:var(--primary-600)}
 .auth-card .btn-primary:hover{filter:brightness(.97)}
 
@@ -211,38 +253,13 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 .auth-footer a{color:var(--primary); text-decoration:underline}
 .auth-footer .version{opacity:.9}
 
-/* Hide legacy auth-only footer */
-.no-chrome .footer-auth{display:none !important}
-
-/* Small tweak when header is hidden */
-.no-chrome .container{margin-top:0}
-
-/* Responsive tweaks */
-@media (max-width:820px){ .grid-2{grid-template-columns:1fr} }
-@media (max-width:600px){
-  body{padding:16px}
-  .form-row{flex-direction:column}
-  .auth-card{padding:20px}
-}
-
-/* ────────────────────────────────────────────── */
-/* Admin Password Modal + Utilities */
-/* ────────────────────────────────────────────── */
-.modal{
-  position:fixed; inset:0; z-index:1000;
-  display:none; justify-content:center; align-items:center;
-  background: rgba(0,0,0,.55);
-}
+/* Admin Password Modal */
+.modal{ position:fixed; inset:0; z-index:1000; display:none; justify-content:center; align-items:center; background: rgba(0,0,0,.55); }
 .modal.show{ display:flex; }
 .modal-content{
-  width:min(420px, 94vw);
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 18px;
-  box-shadow: var(--shadow);
-  -webkit-backdrop-filter: saturate(140%) blur(10px);
-  backdrop-filter: saturate(140%) blur(10px);
+  width:min(420px, 94vw); background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px; box-shadow: var(--shadow);
+  -webkit-backdrop-filter: saturate(140%) blur(10px); backdrop-filter: saturate(140%) blur(10px);
 }
 .close{ float:right; font-size:20px; cursor:pointer; opacity:.8; }
 .close:hover{ opacity:1; }
@@ -251,30 +268,12 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 .password-field{ position:relative; }
 .password-field input[type="password"],
 .password-field input[type="text"]{
-  width:100%; padding:12px 42px 12px 12px;
-  border-radius:12px; border:2px solid var(--border);
+  width:100%; padding:12px 42px 12px 12px; border-radius:12px; border:2px solid var(--border);
   background:var(--card); color:var(--text);
 }
-.toggle-eye{
-  position:absolute; right:10px; top:50%; transform:translateY(-50%);
-  border:0; background:transparent; cursor:pointer; font-size:16px; line-height:1; opacity:.8;
-}
+.toggle-eye{ position:absolute; right:10px; top:50%; transform:translateY(-50%); border:0; background:transparent; cursor:pointer; font-size:16px; line-height:1; opacity:.8; }
 .toggle-eye:hover{ opacity:1; }
-.toggle-eye:focus-visible{
-  outline:2px solid color-mix(in srgb, var(--primary) 45%, transparent);
-  border-radius:8px;
-}
-
-/* Color helpers for modal title, borders and glow */
-.text-red{ color: var(--red); }
-.text-blue{ color: var(--primary); }
-.text-green{ color: var(--green); }
-.input-red{ border-color: var(--red) !important; }
-.input-blue{ border-color: var(--primary) !important; }
-.input-green{ border-color: var(--green) !important; }
-.glow-red{  box-shadow: 0 0 20px color-mix(in srgb, var(--red) 55%, transparent), 0 5px 20px rgba(0,0,0,.28); }
-.glow-blue{ box-shadow: 0 0 20px color-mix(in srgb, var(--primary) 55%, transparent), 0 5px 20px rgba(0,0,0,.28); }
-.glow-green{box-shadow: 0 0 20px color-mix(in srgb, var(--green) 55%, transparent), 0 5px 20px rgba(0,0,0,.28); }
+.toggle-eye:focus-visible{ outline:2px solid color-mix(in srgb, var(--primary) 45%, transparent); border-radius:8px; }
 
 /* Lockout message */
 #lockoutMsg{ font-weight:700; color: var(--muted); }
@@ -291,64 +290,3 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
   *{ transition:none !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; }
   .shake{ animation:none !important; }
 }
-
-/* === Vanta: Polished top buttons (append) === */
-.btn-row{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
-
-
-.btn-sm{ padding:8px 14px !important; font-size:.92rem !important; }
-.btn-md{ padding:10px 18px !important; font-size:1rem !important; }
-.btn-lg{ padding:12px 22px !important; font-size:1.06rem !important; }
-
-
-/* pill shape for premium actions */
-.btn-pill{ border-radius:999px !important; }
-
-
-/* subtle secondary button */
-.btn-ghost{
-background:transparent !important;
-color:var(--muted) !important;
-border:1px solid var(--border) !important;
-box-shadow:none !important;
-}
-.btn-ghost:hover{ background:rgba(0,0,0,.05) !important; }
-:root[data-theme="dark"] .btn-ghost:hover{ background:rgba(255,255,255,.06) !important; }
-
-
-/* ensure outline variant looks crisp in both themes */
-.btn-outline{
-background:transparent !important;
-color:var(--primary) !important;
-border-color:var(--primary) !important;
-box-shadow:none !important;
-}
-.btn-outline:hover{ background:rgba(96,165,250,.10) !important; }
-
-
-/* visual lock when disabled by data-lock */
-button.btn[data-lock], .btn[data-lock]{ position:relative; }
-button.btn[data-lock][disabled]::after{
-content:""; position:absolute; inset:0; border-radius:inherit; background:rgba(0,0,0,.06);
-}
-
-.btn:focus-visible {
-  outline: 3px solid color-mix(in oklab, var(--primary) 30%, transparent);
-  outline-offset: 3px;
-}
-
-/* ───── CLEANUP + NORMALIZE ───── */
-
-/* Remove earlier .btn-outline block near top of file (lines just after .btn{}):
-   .btn-outline{background:transparent;color:var(--primary);border-color:var(--primary)}
-   .btn-outline:hover{background:rgba(96,165,250,.12)}
-   Keep the final .btn-outline (with !important) below.
-*/
-
-/* Normalize anchor buttons to match real <button> */
-a.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-

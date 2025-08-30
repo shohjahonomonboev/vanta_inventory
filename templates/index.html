@@ -29,8 +29,8 @@
   <input type="hidden" name="filter" value="{{ selected_filter }}">
   <input type="hidden" name="sort"   value="{{ request.args.get('sort','') }}">
   <div class="btn-row">
-    <button type="submit" class="btn btn-primary btn-md btn-pill" data-lock>{{ t('apply') or 'Apply Date' }}</button>
-    <a class="btn btn-ghost btn-md btn-pill" href="{{ url_for('index') }}">{{ t('reset') or 'Reset' }}</a>
+    <button type="submit" class="btn btn-primary btn-sm" data-lock>{{ t('apply') or 'Apply' }}</button>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('index') }}">{{ t('reset') or 'Reset' }}</a>
   </div>
 </form>
 
@@ -47,7 +47,7 @@
   </select>
   <input type="number" name="qty" placeholder="{{ t('qty') }}" min="1" required>
   <input type="text" name="sell_price" id="sell-price" data-money data-decimals="0" placeholder="{{ t('sell_price') }} ({{ CURRENCY }})" required>
-  <button type="submit" class="btn btn-primary btn-md btn-pill" data-lock>{{ t('sell') }}</button>
+  <button type="submit" class="btn btn-primary btn-sm" data-lock>{{ t('sell') }}</button>
 </form>
 
 <script>
@@ -86,7 +86,7 @@
   <input type="text"  name="buying_price"  data-money data-decimals="0" placeholder="{{ t('buy') }} ({{ CURRENCY }})" required>
   <input type="text"  name="selling_price" data-money data-decimals="0" placeholder="{{ t('sell') }} ({{ CURRENCY }})" required>
   <input type="number" name="quantity"     placeholder="{{ t('quantity') }}" min="1" required>
-  <button type="submit" class="btn btn-primary btn-md btn-pill" data-lock>{{ t('add') }}</button>
+  <button type="submit" class="btn btn-primary btn-sm" data-lock>{{ t('add') }}</button>
 </form>
 
 <!-- Language & Currency -->
@@ -101,7 +101,7 @@
         <option value="uz" {{ 'selected' if USER_LANG=='uz' else '' }}>Uzbek</option>
       </select>
       <div class="prefs-actions btn-row">
-        <button type="submit" class="btn btn-primary btn-sm btn-pill" data-lock>{{ t("save") }}</button>
+        <button type="submit" class="btn btn-primary btn-sm" data-lock>{{ t("save") }}</button>
       </div>
     </form>
 
@@ -114,8 +114,8 @@
         <option value="UZS" {{ 'selected' if CURRENCY=='UZS' else '' }}>UZS (so'm)</option>
       </select>
       <div class="prefs-actions btn-row">
-        <button type="submit" class="btn btn-primary btn-sm btn-pill" data-lock>{{ t("save") }}</button>
-        <button type="button" id="auto-detect" class="btn btn-outline btn-sm btn-pill">{{ t("auto_detect") }}</button>
+        <button type="submit" class="btn btn-primary btn-sm" data-lock>{{ t("save") }}</button>
+        <button type="button" id="auto-detect" class="btn btn-outline btn-sm">{{ t("auto_detect") }}</button>
       </div>
     </form>
   </div>
@@ -147,7 +147,7 @@
     <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>{{ t('high_profit') }}</option>
   </select>
   <input type="hidden" name="sort" value="{{ request.args.get('sort','') }}">
-  <button type="submit" class="btn btn-primary btn-md btn-pill" data-lock>{{ t('apply') }}</button>
+  <button type="submit" class="btn btn-primary btn-sm" data-lock>{{ t('apply') }}</button>
 </form>
 
 <!-- Inventory Table -->
@@ -158,7 +158,7 @@
   {% set f = request.args.get('filter','') %}
 
   <div class="toolbar a-up" style="padding:10px;">
-    <button id="filterBtn" class="btn btn-primary" aria-expanded="false" aria-haspopup="true" aria-controls="filterMenu">
+    <button id="filterBtn" class="btn btn-primary btn-sm" aria-expanded="false" aria-haspopup="true" aria-controls="filterMenu">
       {{ t('filter') }} / {{ t('sort') }}
     </button>
 
@@ -245,7 +245,7 @@
           <td>{{ (it[3] | ccy) | fmtmoney }}</td>
           <td>{{ (it[5] | ccy) | fmtmoney }}</td>
           <td>
-            <a href="{{ url_for('edit_item', item_id=it[0]) }}" class="btn">{{ t('edit') or 'Edit' }}</a>
+            <a href="{{ url_for('edit_item', item_id=it[0]) }}" class="btn btn-ghost btn-xs">{{ t('edit') or 'Edit' }}</a>
             <!-- Delete removed here by request -->
           </td>
         </tr>
@@ -277,33 +277,21 @@
           <td>{{ s[5] | ccy | fmtmoney }}</td>
           <td class="actions">
             <!-- Return sale (inline admin password) -->
-            <form method="POST"
-                  action="{{ url_for('return_sale', sale_id=s[0]) }}"
-                  style="display:inline">
+            <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
               <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-              <input type="password"
-                     name="admin_password"
-                     placeholder="Admin password"
-                     required
-                     aria-label="Admin password"
-                     autocomplete="current-password"
+              <input type="password" name="admin_password" placeholder="Admin password"
+                     required aria-label="Admin password" autocomplete="current-password"
                      style="width:140px;margin-right:6px;">
-              <button class="btn btn-yellow" type="submit">{{ t('return') or 'Return' }}</button>
+              <button class="btn btn-yellow btn-xs" type="submit">{{ t('return') or 'Return' }}</button>
             </form>
 
             <!-- Delete sale (inline admin password) -->
-            <form method="POST"
-                  action="{{ url_for('delete_sale', sale_id=s[0]) }}"
-                  style="display:inline">
+            <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline">
               <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-              <input type="password"
-                     name="admin_password"
-                     placeholder="Admin password"
-                     required
-                     aria-label="Admin password"
-                     autocomplete="current-password"
+              <input type="password" name="admin_password" placeholder="Admin password"
+                     required aria-label="Admin password" autocomplete="current-password"
                      style="width:140px;margin-right:6px;">
-              <button class="btn btn-red" type="submit">{{ t('delete') or 'Delete' }}</button>
+              <button class="btn btn-red btn-xs" type="submit">{{ t('delete') or 'Delete' }}</button>
             </form>
           </td>
         </tr>
@@ -350,7 +338,7 @@
         <input id="soh-hide-zero" type="checkbox" checked> {{ t('hide_zero_qty') or 'Hide zero qty' }}
       </label>
 
-      <button id="soh-reset" class="btn btn-outline a-up btn-pill">{{ t('reset_view') or 'Reset view' }}</button>
+      <button id="soh-reset" class="btn btn-outline btn-sm a-up">{{ t('reset_view') or 'Reset view' }}</button>
     </div>
   </div>
 
@@ -499,18 +487,21 @@
   <strong>{{ t("backup_now") }}</strong> — create a ZIP with CSVs of your tables.
 </p>
 <div class="form-row card a-up" style="padding:12px;">
-  <a href="{{ url_for('export_excel') }}" class="btn btn-green">&#128202; {{ t("export_excel") }}</a>
-  <a href="{{ url_for('admin_backup') }}" class="btn">&#128190; {{ t("backup_db") }}</a>
+  <a href="{{ url_for('export_excel') }}" class="btn btn-green btn-sm">&#128202; {{ t("export_excel") }}</a>
+  <a href="{{ url_for('admin_backup') }}" class="btn btn-ghost btn-sm">&#128190; {{ t("backup_db") }}</a>
 </div>
 
-<!-- Double-click guard for primary actions -->
+<!-- Submit-based double-click guard (doesn't block submit) -->
 <script>
-  document.addEventListener('click', e=>{
-    const b = e.target.closest('button.btn[data-lock]');
-    if(!b) return;
-    b.disabled = true;
-    setTimeout(()=>{ b.disabled = false; }, 1200);
-  });
+  document.addEventListener('submit', function (e) {
+    try {
+      const btn = e.submitter;
+      if (btn && btn.matches('button.btn[data-lock]')) {
+        btn.disabled = true;
+        setTimeout(() => { try { btn.disabled = false; } catch(_){} }, 2000);
+      }
+    } catch(_) {}
+  }, true);
 </script>
 
 {% endblock %}
