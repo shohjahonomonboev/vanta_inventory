@@ -28,8 +28,10 @@
   <input type="hidden" name="search" value="{{ search_query }}">
   <input type="hidden" name="filter" value="{{ selected_filter }}">
   <input type="hidden" name="sort"   value="{{ request.args.get('sort','') }}">
-  <button type="submit">{{ t('apply') or 'Apply Date' }}</button>
-  <a class="btn btn-outline" href="{{ url_for('index') }}">{{ t('reset') or 'Reset' }}</a>
+  <div class="btn-row">
+    <button type="submit" class="btn btn-primary btn-md btn-pill" data-lock>{{ t('apply') or 'Apply Date' }}</button>
+    <a class="btn btn-ghost btn-md btn-pill" href="{{ url_for('index') }}">{{ t('reset') or 'Reset' }}</a>
+  </div>
 </form>
 
 <!-- Sell Item -->
@@ -45,7 +47,7 @@
   </select>
   <input type="number" name="qty" placeholder="{{ t('qty') }}" min="1" required>
   <input type="text" name="sell_price" id="sell-price" data-money data-decimals="0" placeholder="{{ t('sell_price') }} ({{ CURRENCY }})" required>
-  <button type="submit">{{ t('sell') }}</button>
+  <button type="submit" class="btn btn-primary btn-md btn-pill" data-lock>{{ t('sell') }}</button>
 </form>
 
 <script>
@@ -84,7 +86,7 @@
   <input type="text"  name="buying_price"  data-money data-decimals="0" placeholder="{{ t('buy') }} ({{ CURRENCY }})" required>
   <input type="text"  name="selling_price" data-money data-decimals="0" placeholder="{{ t('sell') }} ({{ CURRENCY }})" required>
   <input type="number" name="quantity"     placeholder="{{ t('quantity') }}" min="1" required>
-  <button type="submit">{{ t('add') }}</button>
+  <button type="submit" class="btn btn-primary btn-md btn-pill" data-lock>{{ t('add') }}</button>
 </form>
 
 <!-- Language & Currency -->
@@ -98,7 +100,9 @@
         <option value="en" {{ 'selected' if USER_LANG=='en' else '' }}>English</option>
         <option value="uz" {{ 'selected' if USER_LANG=='uz' else '' }}>Uzbek</option>
       </select>
-      <div class="prefs-actions"><button type="submit">{{ t("save") }}</button></div>
+      <div class="prefs-actions btn-row">
+        <button type="submit" class="btn btn-primary btn-sm btn-pill" data-lock>{{ t("save") }}</button>
+      </div>
     </form>
 
     <form action="{{ url_for('set_currency') }}" method="POST" class="prefs-form" id="currency-form" style="display:flex;gap:8px;align-items:center;">
@@ -109,9 +113,9 @@
         <option value="AED" {{ 'selected' if CURRENCY=='AED' else '' }}>AED (د.إ)</option>
         <option value="UZS" {{ 'selected' if CURRENCY=='UZS' else '' }}>UZS (so'm)</option>
       </select>
-      <div class="prefs-actions">
-        <button type="submit">{{ t("save") }}</button>
-        <button type="button" id="auto-detect">{{ t("auto_detect") }}</button>
+      <div class="prefs-actions btn-row">
+        <button type="submit" class="btn btn-primary btn-sm btn-pill" data-lock>{{ t("save") }}</button>
+        <button type="button" id="auto-detect" class="btn btn-outline btn-sm btn-pill">{{ t("auto_detect") }}</button>
       </div>
     </form>
   </div>
@@ -143,7 +147,7 @@
     <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>{{ t('high_profit') }}</option>
   </select>
   <input type="hidden" name="sort" value="{{ request.args.get('sort','') }}">
-  <button type="submit">{{ t('apply') }}</button>
+  <button type="submit" class="btn btn-primary btn-md btn-pill" data-lock>{{ t('apply') }}</button>
 </form>
 
 <!-- Inventory Table -->
@@ -272,36 +276,36 @@
           <td>{{ s[4] | ccy | fmtmoney }}</td>
           <td>{{ s[5] | ccy | fmtmoney }}</td>
           <td class="actions">
-  <!-- Return sale (inline admin password) -->
-  <form method="POST"
-        action="{{ url_for('return_sale', sale_id=s[0]) }}"
-        style="display:inline">
-    <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-    <input type="password"
-           name="admin_password"
-           placeholder="Admin password"
-           required
-           aria-label="Admin password"
-           autocomplete="current-password"
-           style="width:140px;margin-right:6px;">
-    <button class="btn btn-yellow" type="submit">{{ t('return') or 'Return' }}</button>
-  </form>
+            <!-- Return sale (inline admin password) -->
+            <form method="POST"
+                  action="{{ url_for('return_sale', sale_id=s[0]) }}"
+                  style="display:inline">
+              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+              <input type="password"
+                     name="admin_password"
+                     placeholder="Admin password"
+                     required
+                     aria-label="Admin password"
+                     autocomplete="current-password"
+                     style="width:140px;margin-right:6px;">
+              <button class="btn btn-yellow" type="submit">{{ t('return') or 'Return' }}</button>
+            </form>
 
-  <!-- Delete sale (inline admin password) -->
-  <form method="POST"
-        action="{{ url_for('delete_sale', sale_id=s[0]) }}"
-        style="display:inline">
-    <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-    <input type="password"
-           name="admin_password"
-           placeholder="Admin password"
-           required
-           aria-label="Admin password"
-           autocomplete="current-password"
-           style="width:140px;margin-right:6px;">
-    <button class="btn btn-red" type="submit">{{ t('delete') or 'Delete' }}</button>
-  </form>
-</td>
+            <!-- Delete sale (inline admin password) -->
+            <form method="POST"
+                  action="{{ url_for('delete_sale', sale_id=s[0]) }}"
+                  style="display:inline">
+              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+              <input type="password"
+                     name="admin_password"
+                     placeholder="Admin password"
+                     required
+                     aria-label="Admin password"
+                     autocomplete="current-password"
+                     style="width:140px;margin-right:6px;">
+              <button class="btn btn-red" type="submit">{{ t('delete') or 'Delete' }}</button>
+            </form>
+          </td>
         </tr>
       {% else %}
         <tr><td colspan="6" style="text-align:center; opacity:.7">{{ t('no_sales') or 'No sales yet.' }}</td></tr>
@@ -346,7 +350,7 @@
         <input id="soh-hide-zero" type="checkbox" checked> {{ t('hide_zero_qty') or 'Hide zero qty' }}
       </label>
 
-      <button id="soh-reset" class="btn btn-outline a-up">{{ t('reset_view') or 'Reset view' }}</button>
+      <button id="soh-reset" class="btn btn-outline a-up btn-pill">{{ t('reset_view') or 'Reset view' }}</button>
     </div>
   </div>
 
@@ -498,5 +502,15 @@
   <a href="{{ url_for('export_excel') }}" class="btn btn-green">&#128202; {{ t("export_excel") }}</a>
   <a href="{{ url_for('admin_backup') }}" class="btn">&#128190; {{ t("backup_db") }}</a>
 </div>
+
+<!-- Double-click guard for primary actions -->
+<script>
+  document.addEventListener('click', e=>{
+    const b = e.target.closest('button.btn[data-lock]');
+    if(!b) return;
+    b.disabled = true;
+    setTimeout(()=>{ b.disabled = false; }, 1200);
+  });
+</script>
 
 {% endblock %}
