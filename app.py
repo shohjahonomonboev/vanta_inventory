@@ -391,10 +391,10 @@ def parse_money(s):
 def _load_admins():
     """
     Load admins from env:
-      ADMIN_USERS_JSON='{"admin":"admin","jasur":"jasur2025"}'
+      ADMIN_USERS_JSON='{"vanta":"new2025"}'
       -or-
-      ADMIN_USERS='admin:admin,jasur:jasur2025'
-    Fallback includes 'vanta:beastmode' + 'jasur:jasur2025'.
+      ADMIN_USERS='vanta:new2025'
+    Fallback includes ONLY vanta:new2025.
     Keys stored casefold() for case-insensitive matching.
     """
     raw_json = os.environ.get("ADMIN_USERS_JSON", "").strip()
@@ -413,7 +413,9 @@ def _load_admins():
         except Exception:
             pass
 
-    return {"vanta": "beastmode", "jasur": "jasur2025"}
+    # 🔒 Fallback: only Vanta, only new2025
+    return {"vanta": "new2025"}
+
 
 ADMIN_USERS = _load_admins()
 ADMIN_ADMINS = set(ADMIN_USERS.keys())  # allow-list
@@ -500,7 +502,7 @@ def require_admin_action_pw() -> bool:
     })
 
     # accept if matches either the env gate OR the logged-in user's login password
-    ok = _admin_pw_ok(sent) or hmac.compare_digest(user_pw, sent or "")
+    ok = _admin_pw_ok(sent)  # accept ONLY the env gate
 
     if not ok:
         _lock_fail()
@@ -511,7 +513,6 @@ def require_admin_action_pw() -> bool:
 
     _lock_clear()
     return True
-
 
 
 def _admin_log(action: str, item: str, success: int):
