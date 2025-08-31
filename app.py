@@ -48,6 +48,7 @@ def _parse_date(s: str):
     except Exception:
         return None
 
+
 # Flash helpers
 def flash_success(msg): flash(msg, "success")
 def flash_error(msg):   flash(msg, "error")
@@ -69,6 +70,16 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     PERMANENT_SESSION_LIFETIME=timedelta(days=7),
 )
+
+# app.py (top-level, near other config)
+import os
+APP_VERSION = os.getenv("APP_VERSION", "dev")
+GIT_SHA = os.getenv("RENDER_GIT_COMMIT") or os.getenv("SOURCE_VERSION") or os.getenv("GIT_SHA", "")
+
+@app.route("/__version__")
+def __version__():
+    return {"app_version": APP_VERSION, "git_sha": GIT_SHA[:8]}
+
 
 # Behind-proxy headers (prod only)
 if not IS_DEV:
