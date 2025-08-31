@@ -642,10 +642,47 @@ def index():
     direction       = request.args.get("direction", "asc")
     sort_param      = request.args.get("sort")
 
-    # ----- ORIN ADD: unified date window (supports from-only / to-only / both / none=today) -----
+    # ----- Unified date window (engine-agnostic, inclusive end by using exclusive next-day) -----
     start_str = (request.args.get("from") or "").strip()
     end_str   = (request.args.get("to")   or "").strip()
+
+    # Helper to format YYYY-MM-DD safely
+    def _coerce_date_str(s: str) -> str:
+        s = (s or "").strip()
+        return s[:10] if len(s) >= 10 else ""
+
+    from datetime import datetime, timedelta
+
+    today = datetime.now().date()
+
+    # build start date
+    if _coerce_date_str(start_str):
+        start_date = datetime.strptime(_coerce_date_str(start_str), "%Y-%m-%d").date()
+    else:
+        start_date = today
+
+    # build end date (inclusive in UI, exclusive in SQL by adding 1 day)
+    if _coerce_date_str(end_str):
+        end_date = datetime.strptime(_coerce_date_str(end_str), "%Y-%m-%d").date()
+    else:
+        end_date = today
+
+    # ensure order (if user inverted)
+    if end_date < start_date:
+        start_date, end_date = end_date, start_date
+
+    start_ts = f"{start_date.isoformat()} 00:00:00"
+    end_exclusive_ts = f"{(end_date + timedelta(days=1)).isoformat()} 00:00:00"
+
+    # Single WHERE for both engines (string timestamps work in SQLite and Postgres)
+    where  = "s.sold_at >= :start AND s.sold_at < :end"
+    params = {"start": start_ts, "end": end_exclusive_ts}
+
+    # (optional, but super helpful)
+    app.logger.info("[date-window] start=%s end_exclusive=%s", start_ts, end_exclusive_ts)
+
     using_sqlite = db.DATABASE_URL.startswith("sqlite")
+
 
     if using_sqlite:
         where_clauses, params = [], {}

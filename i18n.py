@@ -208,7 +208,7 @@ I18N = {
         "name_az": "Nomi (A→Z)",
 
         # Sold Items
-        "sold_items": "Bugun sotilganlar",
+        "sold_items": "Sotilgan maxsulot",
         "sold_items_sub": "Qaytarish zaxiraga qo‘shadi va bugungi savdodan o‘chiradi.",
         "sold_items_hint": "Qaytarish zaxiraga qo‘shadi va bugungi savdodan o‘chiradi.",
         "no_sales_today": "Buguncha savdo yo‘q.",
