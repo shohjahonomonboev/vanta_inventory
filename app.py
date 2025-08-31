@@ -631,12 +631,37 @@ def index():
     direction       = request.args.get("direction", "asc")
     sort_param      = request.args.get("sort")
 
-    # optional date window (?from=YYYY-MM-DD&to=YYYY-MM-DD)
+    # ----- ORIN ADD: unified date window (supports from-only / to-only / both / none=today) -----
     start_str = (request.args.get("from") or "").strip()
     end_str   = (request.args.get("to")   or "").strip()
-    use_window = bool(start_str and end_str)
+    using_sqlite = db.DATABASE_URL.startswith("sqlite")
 
-    # map short sort tokens
+    if using_sqlite:
+        where_clauses, params = [], {}
+        if start_str:
+            where_clauses.append("s.sold_at >= :start")
+            params["start"] = f"{start_str} 00:00:00"
+        if end_str:
+            where_clauses.append("s.sold_at < DATETIME(:end, '+1 day')")  # inclusive
+            params["end"] = f"{end_str} 00:00:00"
+        if not where_clauses:
+            where = "s.sold_at >= DATETIME('now','start of day') AND s.sold_at < DATETIME('now','start of day','+1 day')"
+        else:
+            where = " AND ".join(where_clauses)
+    else:
+        where_clauses, params = [], {}
+        if start_str:
+            where_clauses.append("s.sold_at >= DATE(:start)")
+            params["start"] = start_str
+        if end_str:
+            where_clauses.append("s.sold_at < DATE(:end) + INTERVAL '1 day'")  # inclusive
+            params["end"] = end_str
+        if not where_clauses:
+            where = "s.sold_at >= CURRENT_DATE AND s.sold_at < CURRENT_DATE + INTERVAL '1 day'"
+        else:
+            where = " AND ".join(where_clauses)
+
+    # map short sort tokens for inventory table (client menu)
     if sort_param:
         mapping = {
             "name_asc":  ("name", "asc"),
@@ -649,63 +674,23 @@ def index():
         sort_by, direction = mapping.get(sort_param, (sort_by, direction))
 
     # ----- data -----
-    inventory    = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
-    using_sqlite = db.DATABASE_URL.startswith("sqlite")
+    inventory = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
 
-    # ---- KPIs: revenue/profit for window or today ----
-    if using_sqlite:
-        if use_window:
-            row = db.db_one(
-                """
-                SELECT
-                  COALESCE(SUM(qty * sell_price), 0),
-                  COALESCE(SUM(profit), 0)
-                FROM sales
-                WHERE sold_at >= :start
-                  AND sold_at <  DATETIME(:end,'+1 day')
-                """,
-                {"start": f"{start_str} 00:00:00", "end": f"{end_str} 00:00:00"},
-            )
-        else:
-            row = db.db_one(
-                """
-                SELECT
-                  COALESCE(SUM(qty * sell_price), 0),
-                  COALESCE(SUM(profit), 0)
-                FROM sales
-                WHERE sold_at >= DATETIME('now','start of day')
-                  AND sold_at <  DATETIME('now','start of day','+1 day')
-                """
-            )
-    else:
-        if use_window:
-            row = db.db_one(
-                """
-                SELECT
-                  COALESCE(SUM(qty * sell_price), 0),
-                  COALESCE(SUM(profit), 0)
-                FROM sales s
-                WHERE s.sold_at >= DATE(:start)
-                  AND s.sold_at <  DATE(:end) + INTERVAL '1 day'
-                """,
-                {"start": start_str, "end": end_str},
-            )
-        else:
-            row = db.db_one(
-                """
-                SELECT
-                  COALESCE(SUM(qty * sell_price), 0),
-                  COALESCE(SUM(profit), 0)
-                FROM sales s
-                WHERE s.sold_at >= CURRENT_DATE
-                  AND s.sold_at <  CURRENT_DATE + INTERVAL '1 day'
-                """
-            )
-
+    # ---- KPIs: (REUSED WHERE) ----
+    row = db.db_one(
+        f"""
+        SELECT
+          COALESCE(SUM(s.qty * s.sell_price), 0),
+          COALESCE(SUM(s.profit), 0)
+        FROM sales s
+        WHERE {where}
+        """,
+        params
+    )
     today_revenue = row[0] if row else 0
     today_profit  = row[1] if row else 0
 
-    # ---- Filtering ----
+    # ---- Filtering (in-memory) ----
     if search_query:
         inventory = [it for it in inventory if search_query in (it[1] or "").lower()]
     if selected_filter == "low_stock":
@@ -726,6 +711,7 @@ def index():
     # ---- Totals ----
     def nz_dec(x): return x if x is not None else Decimal(0)
     def nz_int(x): return x if x is not None else 0
+
     total_quantity = sum(nz_int(it[4]) for it in inventory)
     total_profit   = sum(nz_dec(it[5]) for it in inventory)
 
@@ -773,55 +759,34 @@ def index():
     stock_labels = [it[1] for it in inventory]
     stock_values = [nz_int(it[4]) for it in inventory]
 
-    # ---- Sold list for the current window (or today) ----
-    if using_sqlite:
-        if use_window:
-            sales_today = db.db_all(
-                """
-                SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
-                FROM sales s
-                JOIN inventory i ON i.id = s.item_id
-                WHERE s.sold_at >= :start
-                  AND s.sold_at <  DATETIME(:end,'+1 day')
-                ORDER BY s.sold_at DESC
-                """,
-                {"start": f"{start_str} 00:00:00", "end": f"{end_str} 00:00:00"},
-            )
-        else:
-            sales_today = db.db_all(
-                """
-                SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
-                FROM sales s
-                JOIN inventory i ON i.id = s.item_id
-                WHERE s.sold_at >= DATETIME('now','start of day')
-                  AND s.sold_at <  DATETIME('now','start of day','+1 day')
-                ORDER BY s.sold_at DESC
-                """
-            )
-    else:
-        if use_window:
-            sales_today = db.db_all(
-                """
-                SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
-                FROM sales s
-                JOIN inventory i ON i.id = s.item_id
-                WHERE s.sold_at >= DATE(:start)
-                  AND s.sold_at <  DATE(:end) + INTERVAL '1 day'
-                ORDER BY s.sold_at DESC
-                """,
-                {"start": start_str, "end": end_str},
-            )
-        else:
-            sales_today = db.db_all(
-                """
-                SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
-                FROM sales s
-                JOIN inventory i ON i.id = s.item_id
-                WHERE s.sold_at >= CURRENT_DATE
-                  AND s.sold_at <  CURRENT_DATE + INTERVAL '1 day'
-                ORDER BY s.sold_at DESC
-                """
-            )
+    # ---- ORIN ADD: Sold list + pagination (REUSED WHERE) ----
+    page = max(int(request.args.get("page", 1) or 1), 1)
+    per_page = 50
+    offset = (page - 1) * per_page
+
+    sales_today = db.db_all(
+        f"""
+        SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
+        FROM sales s
+        JOIN inventory i ON i.id = s.item_id
+        WHERE {where}
+        ORDER BY s.sold_at DESC
+        LIMIT :limit OFFSET :offset
+        """,
+        {**params, "limit": per_page, "offset": offset}
+    )
+
+    # ---- ORIN ADD: total count & pages ----
+    total_count = db.db_one(
+        f"""
+        SELECT COUNT(*)
+        FROM sales s
+        JOIN inventory i ON i.id = s.item_id
+        WHERE {where}
+        """,
+        params
+    )[0]
+    total_pages = max((total_count + per_page - 1) // per_page, 1)
 
     # ---- FX footer ----
     _base, _rates = _derive_rates_from_usd("USD")
@@ -829,31 +794,35 @@ def index():
     usd_to_uzs = _rates.get("UZS", 0)
 
     # ---- Render ----
-    return render_template(
-        "index.html",
-        selected_from=start_str,
-        selected_to=end_str,
-        inventory=inventory,
-        search_query=search_query,
-        sort_by=sort_by,
-        direction=direction,
-        selected_filter=selected_filter,
-        total_quantity=total_quantity,
-        total_profit=total_profit,
-        top_profit_labels=[it[1] for it in top_profit_items],
-        top_profit_values=[float(nz_dec(it[5])) for it in top_profit_items],
-        low_stock_labels=[it[1] for it in low_stock_items],
-        low_stock_values=[nz_int(it[4]) for it in low_stock_items],
-        sales_labels=sales_labels,
-        sales_values=sales_values,
-        stock_labels=stock_labels,
-        stock_values=stock_values,
-        sales_today=sales_today,
-        today_revenue=today_revenue,
-        today_profit=today_profit,
-        usd_to_aed=usd_to_aed,
-        usd_to_uzs=usd_to_uzs,
-    )
+    ctx = {
+        "selected_from": start_str,
+        "selected_to": end_str,
+        "inventory": inventory,
+        "search_query": search_query,
+        "sort_by": sort_by,
+        "direction": direction,
+        "selected_filter": selected_filter,
+        "total_quantity": total_quantity,
+        "total_profit": total_profit,
+        "top_profit_labels": [it[1] for it in top_profit_items],
+        "top_profit_values": [float(nz_dec(it[5])) for it in top_profit_items],
+        "low_stock_labels": [it[1] for it in low_stock_items],
+        "low_stock_values": [nz_int(it[4]) for it in low_stock_items],
+        "sales_labels": sales_labels,
+        "sales_values": sales_values,
+        "stock_labels": stock_labels,
+        "stock_values": stock_values,
+        "sales_today": sales_today,
+        "today_revenue": today_revenue,
+        "today_profit": today_profit,
+        "usd_to_aed": usd_to_aed,
+        "usd_to_uzs": usd_to_uzs,
+        "page": page,
+        "total_pages": total_pages,
+        "total_count": total_count,
+    }
+
+    return render_template("index.html", **ctx)
 
 # ➕ Add Item (UPSERT by name)
 @app.post("/add")

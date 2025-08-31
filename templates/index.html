@@ -28,6 +28,8 @@
   <input type="hidden" name="search" value="{{ search_query }}">
   <input type="hidden" name="filter" value="{{ selected_filter }}">
   <input type="hidden" name="sort"   value="{{ request.args.get('sort','') }}">
+  <!-- ORIN ADD: ensure date apply always goes to page 1 -->
+  <input type="hidden" name="page" value="1">
   <div class="btn-row">
     <button type="submit" class="btn btn-primary btn-sm" data-lock>{{ t('apply') or 'Apply' }}</button>
     <a class="btn btn-ghost btn-sm" href="{{ url_for('index') }}">{{ t('reset') or 'Reset' }}</a>
@@ -147,6 +149,8 @@
     <option value="high_profit" {% if selected_filter == 'high_profit' %}selected{% endif %}>{{ t('high_profit') }}</option>
   </select>
   <input type="hidden" name="sort" value="{{ request.args.get('sort','') }}">
+  <!-- ORIN ADD: when applying filter, go to page 1 -->
+  <input type="hidden" name="page" value="1">
   <button type="submit" class="btn btn-primary btn-sm" data-lock>{{ t('apply') }}</button>
 </form>
 
@@ -257,50 +261,152 @@
 </div>
 
 <!-- Sold Items -->
-<h2 class="mt-6 a-down">{{ t('sold_items') or 'Sold Items' }}{% if selected_from or selected_to %} ({{ selected_from }} → {{ selected_to }}){% endif %}</h2>
-<p class="subtitle a-up">{{ t('sold_items_hint') or 'Return puts the quantity back into Inventory and removes this sale from today.' }}</p>
-<div class="table-wrap card a-fade">
-  <table class="table">
-    <thead>
-      <tr>
-        <th>#</th><th>{{ t("item") }}</th><th>{{ t("qty") }}</th>
-        <th>{{ t("sell") }} ({{ CURRENCY }})</th><th>{{ t("profit") }} ({{ CURRENCY }})</th><th>{{ t("action") }}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for s in sales_today %}
-        <tr>
-          <td>{{ loop.index }}</td>
-          <td>{{ s[2] }}</td>
-          <td>{{ s[3] }}</td>
-          <td>{{ s[4] | ccy | fmtmoney }}</td>
-          <td>{{ s[5] | ccy | fmtmoney }}</td>
-          <td class="actions">
-            <!-- Return sale (inline admin password) -->
-            <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
-              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-              <input type="password" name="admin_password" placeholder="Admin password"
-                     required aria-label="Admin password" autocomplete="current-password"
-                     style="width:140px;margin-right:6px;">
-              <button class="btn btn-yellow btn-xs" type="submit">{{ t('return') or 'Return' }}</button>
-            </form>
+<h2 class="mt-6 a-down">
+  {{ t('sold_items') or 'Sold Items' }}
+  {% if selected_from or selected_to %} ({{ selected_from }} → {{ selected_to }}){% endif %}
+</h2>
+<p class="subtitle a-up">
+  {{ t('sold_items_hint') or 'Return puts the quantity back into Inventory and removes this sale from today.' }}
+</p>
 
-            <!-- Delete sale (inline admin password) -->
-            <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline">
-              <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
-              <input type="password" name="admin_password" placeholder="Admin password"
-                     required aria-label="Admin password" autocomplete="current-password"
-                     style="width:140px;margin-right:6px;">
-              <button class="btn btn-red btn-xs" type="submit">{{ t('delete') or 'Delete' }}</button>
-            </form>
-          </td>
+<div class="table-wrap card a-fade">
+  <!-- ORIN ADD: phone-friendly horizontal scrolling -->
+  <div class="table-scroll-x" data-drag-scroll>
+    <table class="table wide-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>{{ t("item") }}</th>
+          <th>{{ t("qty") }}</th>
+          <th>{{ t("sell") }} ({{ CURRENCY }})</th>
+          <th>{{ t("profit") }} ({{ CURRENCY }})</th>
+          <th>{{ t("action") }}</th>
         </tr>
-      {% else %}
-        <tr><td colspan="6" style="text-align:center; opacity:.7">{{ t('no_sales') or 'No sales yet.' }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for s in sales_today %}
+          <tr>
+            <td>{{ loop.index + ((page-1)*50) }}</td>
+            <td>{{ s[2] }}</td>
+            <td>{{ s[3] }}</td>
+            <td>{{ s[4] | ccy | fmtmoney }}</td>
+            <td>{{ s[5] | ccy | fmtmoney }}</td>
+            <td class="actions">
+              <!-- Return sale (inline admin password) -->
+              <form method="POST" action="{{ url_for('return_sale', sale_id=s[0]) }}" style="display:inline">
+                <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+                <input type="password" name="admin_password" placeholder="Admin password"
+                       required aria-label="Admin password" autocomplete="current-password"
+                       style="width:140px;margin-right:6px;">
+                <button class="btn btn-yellow btn-xs" type="submit">{{ t('return') or 'Return' }}</button>
+              </form>
+
+              <!-- Delete sale (inline admin password) -->
+              <form method="POST" action="{{ url_for('delete_sale', sale_id=s[0]) }}" style="display:inline">
+                <input type="hidden" name="_csrf" value="{{ CSRF_TOKEN }}">
+                <input type="password" name="admin_password" placeholder="Admin password"
+                       required aria-label="Admin password" autocomplete="current-password"
+                       style="width:140px;margin-right:6px;">
+                <button class="btn btn-red btn-xs" type="submit">{{ t('delete') or 'Delete' }}</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr class="empty">
+            <td colspan="6" style="text-align:center; opacity:.7">
+              {{ t('no_sales') or 'No sales yet.' }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div> <!-- ✅ closes .table-scroll-x -->
+
+  {% if total_pages > 1 %}
+    <div class="pager" role="navigation" aria-label="Sales history pages">
+      {% if page > 1 %}
+        <a
+          class="btn pager-btn"
+          rel="prev"
+          href="{{ url_for('index', **{
+            'from': selected_from, 'to': selected_to,
+            'search': search_query, 'filter': selected_filter, 'sort': request.args.get('sort',''),
+            'page': page-1
+          }) }}"
+          aria-label="Previous page"
+        >‹ Prev</a>
+      {% endif %}
+
+      <span class="pager-status" aria-live="polite">
+        Page {{ page }} of {{ total_pages }}
+        <small style="opacity:.7">· {{ total_count }} results</small>
+      </span>
+
+      {% if page < total_pages %}
+        <a
+          class="btn pager-btn"
+          rel="next"
+          href="{{ url_for('index', **{
+            'from': selected_from, 'to': selected_to,
+            'search': search_query, 'filter': selected_filter, 'sort': request.args.get('sort',''),
+            'page': page+1
+          }) }}"
+          aria-label="Next page"
+        >Next ›</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</div> <!-- ✅ closes .table-wrap -->
+
+<!-- Keyboard scroll helpers for Sold Items -->
+<script>
+(function(){
+  const wrap = document.querySelector('.table-scroll-x');
+  if(!wrap) return;
+  window.addEventListener('keydown', e=>{
+    if(e.key === 'ArrowRight') wrap.scrollBy({left:80, behavior:'smooth'});
+    if(e.key === 'ArrowLeft')  wrap.scrollBy({left:-80, behavior:'smooth'});
+  });
+})();
+</script>
+
+
+  <!-- ORIN ADD: Tiffany pager -->
+{% if total_pages > 1 %}
+<div class="pager" role="navigation" aria-label="Sales history pages">
+  {% if page > 1 %}
+    <a
+      class="btn pager-btn"
+      rel="prev"
+      href="{{ url_for('index', **{
+        'from': selected_from, 'to': selected_to,
+        'search': search_query, 'filter': selected_filter, 'sort': request.args.get('sort',''),
+        'page': page-1
+      }) }}"
+      aria-label="Previous page"
+    >‹ Prev</a>
+  {% endif %}
+
+  <span class="pager-status" aria-live="polite">
+    Page {{ page }} of {{ total_pages }}
+    <small style="opacity:.7">· {{ total_count }} results</small>
+  </span>
+
+  {% if page < total_pages %}
+    <a
+      class="btn pager-btn"
+      rel="next"
+      href="{{ url_for('index', **{
+        'from': selected_from, 'to': selected_to,
+        'search': search_query, 'filter': selected_filter, 'sort': request.args.get('sort',''),
+        'page': page+1
+      }) }}"
+      aria-label="Next page"
+    >Next ›</a>
+  {% endif %}
 </div>
+{% endif %}
+
 
 <!-- Stock Overview -->
 <section class="chart-block card chart-reveal a-up" style="padding:16px">
@@ -502,6 +608,30 @@
       }
     } catch(_) {}
   }, true);
+</script>
+
+<!-- ORIN ADD: drag-to-scroll for Sold Items -->
+<script>
+(function () {
+  const el = document.querySelector('.table-scroll-x[data-drag-scroll]');
+  if (!el) return;
+  let isDown = false, startX = 0, scrollStart = 0;
+  el.addEventListener('pointerdown', (e) => {
+    isDown = true;
+    el.setPointerCapture(e.pointerId);
+    startX = e.clientX;
+    scrollStart = el.scrollLeft;
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!isDown) return;
+    const dx = e.clientX - startX;
+    el.scrollLeft = scrollStart - dx;
+  });
+  const end = () => { isDown = false; };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('pointerleave', end);
+})();
 </script>
 
 {% endblock %}

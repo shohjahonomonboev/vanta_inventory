@@ -1,4 +1,5 @@
-# i18n.py
+# i18n.py — consolidated keys (no duplicates) + keys used by templates added
+
 I18N = {
     "en": {
         # App / Header / Footer
@@ -75,10 +76,19 @@ I18N = {
         "reset_view": "Reset view",
         "stock_value": "Stock Value",
 
+        # (Chart control labels used in your template)
+        "sort": "Sort",
+        "qty_high_low": "Qty (high→low)",
+        "value_high_low": "Value (high→low)",
+        "profit_unit_high_low": "Profit/unit (high→low)",
+        "name_az": "Name (A→Z)",
+
         # Sold Items
         "sold_items": "Sold Items",
         "sold_items_sub": "Return puts the quantity back into Inventory and removes this sale from today.",
+        "sold_items_hint": "Return puts the quantity back into Inventory and removes this sale from today.",
         "no_sales_today": "No sales yet today.",
+        "no_sales": "No sales yet.",
         "return": "Return",
         "delete": "Delete",
 
@@ -113,21 +123,6 @@ I18N = {
         "error": "Error",
         "info": "Info",
         "warning": "Warning",
-        "stock_overview_title":"Stock On Hand — Overview",
-"stock_overview_hint":"Bars show quantity; the line shows total stock value. Scroll to zoom, drag to pan, double-click to reset.",
-"search_items":"Search items…",
-"sort":"Sort",
-"sort_qty_high_low":"Qty (high→low)",
-"sort_value_high_low":"Value (high→low)",
-"sort_profit_high_low":"Profit/unit (high→low)",
-"sort_name_az":"Name (A→Z)",
-"top_n":"Top N",
-"hide_zero_qty":"Hide zero qty",
-"reset_view":"Reset view",
-"quantity":"Quantity",
-"stock_value":"Stock Value",
-"stock_value": "Stock value",   # en
-
     },
 
     "uz": {
@@ -196,8 +191,8 @@ I18N = {
         "daily_revenue_label": "Kundalik daromad",
 
         # Stock overview (chart block)
-        "stock_overview_title": "Zaxira — Umumiy ko‘rinish",
-        "stock_overview_hint": "Shtablar har bir mahsulot bo‘yicha miqdorni ko‘rsatadi; chiziq umumiy zaxira qiymatini ko‘rsatadi. Diqqatni jamlash uchun qidiruv, saralash va Top N dan foydalaning. Yaqinlashtirish uchun aylantiring, siljitish uchun torting. Tiklash uchun ikki marta bosing.",
+        "stock_overview_title": "Ombordagi zaxira — Umumiy ko‘rinish",
+        "stock_overview_hint": "Ustunlar — miqdor; chiziq — umumiy zaxira qiymati. Zoom uchun aylantiring, surish uchun torting, tiklash uchun ikki marta bosing.",
         "search_items": "Mahsulot qidirish…",
         "sort_label": "Saralash",
         "top_n": "Top N",
@@ -205,10 +200,19 @@ I18N = {
         "reset_view": "Ko‘rinishni tiklash",
         "stock_value": "Zaxira qiymati",
 
+        # (Chart control labels used in your template)
+        "sort": "Saralash",
+        "qty_high_low": "Miqdor (ko‘p→kam)",
+        "value_high_low": "Qiymat (yuqori→past)",
+        "profit_unit_high_low": "Foyda/birlik (yuqori→past)",
+        "name_az": "Nomi (A→Z)",
+
         # Sold Items
         "sold_items": "Bugun sotilganlar",
         "sold_items_sub": "Qaytarish zaxiraga qo‘shadi va bugungi savdodan o‘chiradi.",
+        "sold_items_hint": "Qaytarish zaxiraga qo‘shadi va bugungi savdodan o‘chiradi.",
         "no_sales_today": "Buguncha savdo yo‘q.",
+        "no_sales": "Savdo yo‘q.",
         "return": "Qaytarish",
         "delete": "O‘chirish",
 
@@ -243,25 +247,8 @@ I18N = {
         "error": "Xatolik",
         "info": "Ma’lumot",
         "warning": "Ogohlantirish",
-
-"stock_overview_title":"Ombordagi zaxira — Umumiy ko‘rinish",
-"stock_overview_hint":"Ustunlar — miqdor; chiziq — umumiy zaxira qiymati. Zoom uchun aylantiring, surish uchun torting, tiklash uchun ikki marta bosing.",
-"search_items":"Mahsulot qidirish…",
-"sort":"Saralash",
-"sort_qty_high_low":"Miqdor (ko‘p→kam)",
-"sort_value_high_low":"Qiymat (yuqori→past)",
-"sort_profit_high_low":"Foyda/birlik (yuqori→past)",
-"sort_name_az":"Nomi (A→Z)",
-"top_n":"Top N",
-"hide_zero_qty":"Nol miqdorni yashirish",
-"reset_view":"Ko‘rinishni tiklash",
-"quantity":"Miqdor",
-"stock_value":"Zaxira qiymati",
-"stock_value": "Zaxira qiymati",  # uz
-
     }
 }
-
 
 def t(key: str, lang: str = "en") -> str:
     return I18N.get(lang, I18N["en"]).get(key, I18N["en"].get(key, key))

@@ -46,11 +46,11 @@
 }
 
 /* Base */
-*{box-sizing:border-box}
-html,body{height:100%}
+*{ box-sizing:border-box }
+html,body{ height:100% }
 body{
   margin:0; padding:28px;
-  font-family: 'Inter', system-ui, Segoe UI, Arial, sans-serif;
+  font-family:'Inter', system-ui, Segoe UI, Arial, sans-serif;
   color:var(--text);
   background:
     radial-gradient(900px 600px at -10% -10%, color-mix(in srgb, var(--primary) 15%, transparent), transparent 60%),
@@ -82,22 +82,21 @@ body.modal-open{ overflow:hidden; }
 /* ───────── Buttons (compact, pill by default) ───────── */
 .btn{
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
-  padding:6px 12px;            /* smaller by default */
+  padding:6px 12px;             /* smaller by default */
   min-height:30px;
-  border-radius:999px;         /* pill */
+  border-radius:999px;          /* pill */
   border:1px solid transparent;
   font-weight:600; font-size:13.5px;
-  line-height:1;
-  cursor:pointer; text-decoration:none;
+  line-height:1; cursor:pointer; text-decoration:none;
   transition:background .18s ease, border-color .18s ease, transform .12s ease;
 }
 .btn:active{ transform:translateY(0) }
 
 /* size modifiers */
-.btn-xs{ padding:4px 10px; min-height:26px; font-size:12.5px; }
-.btn-sm{ padding:6px 12px; min-height:30px; font-size:13.5px; }
-.btn-md{ padding:8px 14px; min-height:34px; font-size:14px; }
-.btn-lg{ padding:10px 16px; min-height:38px; font-size:15px; }
+.btn-xs{ padding:4px 10px; min-height:26px; font-size:12.5px }
+.btn-sm{ padding:6px 12px; min-height:30px; font-size:13.5px }
+.btn-md{ padding:8px 14px; min-height:34px; font-size:14px }
+.btn-lg{ padding:10px 16px; min-height:38px; font-size:15px }
 
 /* variants */
 .btn-primary{
@@ -125,25 +124,24 @@ body.modal-open{ overflow:hidden; }
 .btn-red{ background:var(--red); color:#fff }
 .btn-red:hover{ filter:brightness(.95) }
 
-.btn:disabled{ opacity:.55; cursor:not-allowed; transform:none !important; box-shadow:none !important; }
-
-/* anchor buttons normalize */
-a.btn{ display:inline-flex; align-items:center; justify-content:center; }
+.btn:disabled{ opacity:.55; cursor:not-allowed; transform:none !important; box-shadow:none !important }
+a.btn{ display:inline-flex; align-items:center; justify-content:center }
 
 /* Focus ring */
 .btn:focus-visible{
-  outline: 3px solid color-mix(in oklab, var(--primary) 30%, transparent);
-  outline-offset: 3px;
+  outline:3px solid color-mix(in oklab, var(--primary) 30%, transparent);
+  outline-offset:3px;
 }
 
 /* Forms */
-form{margin:14px 0 22px}
-.form-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.form-col{display:flex;flex-direction:column;gap:10px;max-width:520px}
+form{ margin:14px 0 22px }
+.form-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center }
+.form-col{ display:flex; flex-direction:column; gap:10px; max-width:520px }
 input,select{
-  padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--text)
+  padding:10px 12px; border-radius:12px;
+  border:1px solid var(--border); background:var(--card); color:var(--text);
 }
-input:focus,select:focus{outline:2px solid color-mix(in srgb, var(--primary) 35%, transparent);border-color:var(--primary)}
+input:focus,select:focus{ outline:2px solid color-mix(in srgb, var(--primary) 35%, transparent); border-color:var(--primary) }
 
 /* KPIs */
 .kpis{display:flex;justify-content:center;gap:16px;margin:10px 0 22px;flex-wrap:wrap}
@@ -193,7 +191,7 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 :root[data-theme="dark"] .flash.warning{background:rgba(251,191,36,.12);color:#ffedd5;border-color:rgba(251,191,36,.35)}
 :root[data-theme="dark"] .flash.error{background:rgba(239,68,68,.12);color:#fee2e2;border-color:rgba(239,68,68,.35)}
 @keyframes vantaFlashFade{to{opacity:0}}
-.flash-stack{ display:grid; gap:8px; margin: 8px 0 4px; }
+.flash-stack{ display:grid; gap:8px; margin: 8px 0 4px }
 
 /* Tooltip */
 .section-title{display:flex; align-items:center; gap:8px}
@@ -245,7 +243,7 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 .pw-toggle{position:absolute; inset-inline-end:8px; display:grid; place-items:center; width:36px; height:36px; border:none; background:transparent; cursor:pointer; color:#6b7280}
 
 .w-full{width:100%}
-.auth-card .btn{ padding:10px 14px; border-radius:12px; }
+.auth-card .btn{ padding:10px 14px; border-radius:12px }
 .auth-card .btn-primary{background:var(--primary); color:#fff; border-color:var(--primary-600)}
 .auth-card .btn-primary:hover{filter:brightness(.97)}
 
@@ -254,39 +252,120 @@ thead th{position:sticky; top:0; z-index:2; backdrop-filter:blur(6px); box-shado
 .auth-footer .version{opacity:.9}
 
 /* Admin Password Modal */
-.modal{ position:fixed; inset:0; z-index:1000; display:none; justify-content:center; align-items:center; background: rgba(0,0,0,.55); }
-.modal.show{ display:flex; }
+.modal{ position:fixed; inset:0; z-index:1000; display:none; justify-content:center; align-items:center; background: rgba(0,0,0,.55) }
+.modal.show{ display:flex }
 .modal-content{
   width:min(420px, 94vw); background: var(--card); border: 1px solid var(--border);
   border-radius: 14px; padding: 18px; box-shadow: var(--shadow);
   -webkit-backdrop-filter: saturate(140%) blur(10px); backdrop-filter: saturate(140%) blur(10px);
 }
-.close{ float:right; font-size:20px; cursor:pointer; opacity:.8; }
-.close:hover{ opacity:1; }
+.close{ float:right; font-size:20px; cursor:pointer; opacity:.8 }
+.close:hover{ opacity:1 }
 
 /* Password field & eye toggle */
-.password-field{ position:relative; }
+.password-field{ position:relative }
 .password-field input[type="password"],
 .password-field input[type="text"]{
   width:100%; padding:12px 42px 12px 12px; border-radius:12px; border:2px solid var(--border);
   background:var(--card); color:var(--text);
 }
-.toggle-eye{ position:absolute; right:10px; top:50%; transform:translateY(-50%); border:0; background:transparent; cursor:pointer; font-size:16px; line-height:1; opacity:.8; }
-.toggle-eye:hover{ opacity:1; }
-.toggle-eye:focus-visible{ outline:2px solid color-mix(in srgb, var(--primary) 45%, transparent); border-radius:8px; }
+.toggle-eye{ position:absolute; right:10px; top:50%; transform:translateY(-50%); border:0; background:transparent; cursor:pointer; font-size:16px; line-height:1; opacity:.8 }
+.toggle-eye:hover{ opacity:1 }
+.toggle-eye:focus-visible{ outline:2px solid color-mix(in srgb, var(--primary) 45%, transparent); border-radius:8px }
 
 /* Lockout message */
-#lockoutMsg{ font-weight:700; color: var(--muted); }
+#lockoutMsg{ font-weight:700; color: var(--muted) }
 
 /* Wrong password wiggle */
 @keyframes shake {
   0%{transform:translateX(0)} 20%{transform:translateX(-6px)} 40%{transform:translateX(6px)}
   60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} 100%{transform:translateX(0)}
 }
-.shake{ animation: shake .4s; }
+.shake{ animation: shake .4s }
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce){
-  *{ transition:none !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; }
-  .shake{ animation:none !important; }
+  *{ transition:none !important; animation-duration:.01ms !important; animation-iteration-count:1 !important }
+  .shake{ animation:none !important }
+}
+
+/* ===== ORIN ADD — Sold Items: smooth horizontal scroll on phones ===== */
+.table-scroll-x{
+  overflow-x:auto;
+  overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch;    /* momentum on iOS */
+  scrollbar-width:thin;
+  scroll-snap-type:x proximity;
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  background:var(--card);
+  border:1px solid var(--border);
+  padding:8px;                         /* keep table visuals consistent */
+}
+
+/* Make the Sold Items table wider so there’s room to scroll on mobile */
+.wide-table{ min-width:760px }         /* bump to 880px if you want more sweep */
+
+/* Optional: sticky first column for readability while you scroll */
+.wide-table th:first-child,
+.wide-table td:first-child{
+  position:sticky; left:0;
+  background:var(--card); z-index:1;
+  box-shadow:1px 0 0 var(--border);
+}
+
+/* ===== ORIN ADD — Tiffany Luxe Pager (unified styles) ===== */
+.pager{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:12px;
+  margin:10px 0 6px;
+  font-size:14px;
+  animation:pagerFade .35s ease-out both;
+}
+.pager-status{
+  font-weight:600;
+  color:var(--muted);
+  padding:8px 12px;
+  background:linear-gradient(180deg, rgba(0,0,0,.02), transparent);
+  border-radius:12px;
+  border:1px dashed var(--border);
+}
+.pager-btn{
+  padding:8px 14px;
+  border-radius:999px;                  /* pill */
+  background:var(--card);
+  border:1px solid var(--border);
+  color:var(--primary);
+  box-shadow:0 6px 18px rgba(0,0,0,.06);
+  transition:background .2s ease, transform .1s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.pager-btn:hover{
+  background:color-mix(in srgb, var(--primary) 10%, transparent);
+  transform:translateY(-1px);
+  box-shadow:0 10px 22px rgba(0,0,0,.10);
+  border-color:color-mix(in oklab, var(--primary) 40%, var(--border));
+}
+.pager-btn:active{
+  transform:scale(.96);
+  box-shadow:0 6px 18px rgba(0,0,0,.08);
+}
+@media (max-width:520px){
+  .pager{ gap:8px }
+  .pager-btn{ padding:6px 12px }
+  .pager-status{ font-size:.9rem }
+}
+@keyframes pagerFade{
+  from{ opacity:0; transform:translateY(6px) }
+  to{ opacity:1; transform:translateY(0) }
+}
+
+/* Empty-state fade-in (tables) */
+tbody tr.empty td{
+  animation:fadeIn .35s ease-out both;
+}
+@keyframes fadeIn{
+  from{opacity:0; transform:translateY(6px)}
+  to{opacity:1; transform:translateY(0)}
 }
