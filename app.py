@@ -627,9 +627,6 @@ def get_inventory():
     )
     return [tuple(r) for r in rows]
 
-# =========================
-# Pages / Routes
-# =========================
 @app.route("/")
 def index():
     if not is_logged_in():
@@ -642,89 +639,34 @@ def index():
     direction       = request.args.get("direction", "asc")
     sort_param      = request.args.get("sort")
 
-    # ----- Unified date window (engine-agnostic, inclusive end by using exclusive next-day) -----
+    # ----- Unified date window (inclusive in UI; exclusive in SQL via +1 day) -----
     start_str = (request.args.get("from") or "").strip()
     end_str   = (request.args.get("to")   or "").strip()
 
-    # Helper to format YYYY-MM-DD safely
     def _coerce_date_str(s: str) -> str:
         s = (s or "").strip()
         return s[:10] if len(s) >= 10 else ""
 
-    from datetime import datetime, timedelta
-
     today = datetime.now().date()
-
-    # build start date
-    if _coerce_date_str(start_str):
-        start_date = datetime.strptime(_coerce_date_str(start_str), "%Y-%m-%d").date()
-    else:
-        start_date = today
-
-    # build end date (inclusive in UI, exclusive in SQL by adding 1 day)
-    if _coerce_date_str(end_str):
-        end_date = datetime.strptime(_coerce_date_str(end_str), "%Y-%m-%d").date()
-    else:
-        end_date = today
-
-    # ensure order (if user inverted)
+    start_date = datetime.strptime(_coerce_date_str(start_str), "%Y-%m-%d").date() if _coerce_date_str(start_str) else today
+    end_date   = datetime.strptime(_coerce_date_str(end_str),   "%Y-%m-%d").date() if _coerce_date_str(end_str)   else today
     if end_date < start_date:
         start_date, end_date = end_date, start_date
 
-    start_ts = f"{start_date.isoformat()} 00:00:00"
+    start_ts         = f"{start_date.isoformat()} 00:00:00"
     end_exclusive_ts = f"{(end_date + timedelta(days=1)).isoformat()} 00:00:00"
 
-    # Single WHERE for both engines (string timestamps work in SQLite and Postgres)
+    # One WHERE for both engines
     where  = "s.sold_at >= :start AND s.sold_at < :end"
     params = {"start": start_ts, "end": end_exclusive_ts}
-
-    # (optional, but super helpful)
     app.logger.info("[date-window] start=%s end_exclusive=%s", start_ts, end_exclusive_ts)
 
     using_sqlite = db.DATABASE_URL.startswith("sqlite")
 
-
-    if using_sqlite:
-        where_clauses, params = [], {}
-        if start_str:
-            where_clauses.append("s.sold_at >= :start")
-            params["start"] = f"{start_str} 00:00:00"
-        if end_str:
-            where_clauses.append("s.sold_at < DATETIME(:end, '+1 day')")  # inclusive
-            params["end"] = f"{end_str} 00:00:00"
-        if not where_clauses:
-            where = "s.sold_at >= DATETIME('now','start of day') AND s.sold_at < DATETIME('now','start of day','+1 day')"
-        else:
-            where = " AND ".join(where_clauses)
-    else:
-        where_clauses, params = [], {}
-        if start_str:
-            where_clauses.append("s.sold_at >= DATE(:start)")
-            params["start"] = start_str
-        if end_str:
-            where_clauses.append("s.sold_at < DATE(:end) + INTERVAL '1 day'")  # inclusive
-            params["end"] = end_str
-        if not where_clauses:
-            where = "s.sold_at >= CURRENT_DATE AND s.sold_at < CURRENT_DATE + INTERVAL '1 day'"
-        else:
-            where = " AND ".join(where_clauses)
-
-    # map short sort tokens for inventory table (client menu)
-    if sort_param:
-        mapping = {
-            "name_asc":  ("name", "asc"),
-            "name_desc": ("name", "desc"),
-            "qty_asc":   ("quantity", "asc"),
-            "qty_desc":  ("quantity", "desc"),
-            "price_asc": ("price", "asc"),
-            "price_desc":("price", "desc"),
-        }
-        sort_by, direction = mapping.get(sort_param, (sort_by, direction))
-
     # ----- data -----
     inventory = get_inventory()  # (id, name, buy, sell, qty, profit, currency)
 
-    # ---- KPIs: (REUSED WHERE) ----
+    # ---- KPIs ----
     row = db.db_one(
         f"""
         SELECT
@@ -748,6 +690,16 @@ def index():
 
     # ---- Sorting (in-memory) ----
     sort_map = {"name": 1, "quantity": 4, "profit": 5, "price": 3}
+    if sort_param:
+        mapping = {
+            "name_asc":  ("name", "asc"),
+            "name_desc": ("name", "desc"),
+            "qty_asc":   ("quantity", "asc"),
+            "qty_desc":  ("quantity", "desc"),
+            "price_asc": ("price", "asc"),
+            "price_desc":("price", "desc"),
+        }
+        sort_by, direction = mapping.get(sort_param, (sort_by, direction))
     if sort_by in sort_map:
         idx = sort_map[sort_by]
         inventory = sorted(
@@ -759,7 +711,6 @@ def index():
     # ---- Totals ----
     def nz_dec(x): return x if x is not None else Decimal(0)
     def nz_int(x): return x if x is not None else 0
-
     total_quantity = sum(nz_int(it[4]) for it in inventory)
     total_profit   = sum(nz_dec(it[5]) for it in inventory)
 
@@ -799,7 +750,6 @@ def index():
             ORDER BY d
             """
         )
-
     sales_labels = [str(r[0]) for r in rows]
     sales_values = [float(r[1] or 0) for r in rows]
 
@@ -807,11 +757,10 @@ def index():
     stock_labels = [it[1] for it in inventory]
     stock_values = [nz_int(it[4]) for it in inventory]
 
-    # ---- ORIN ADD: Sold list + pagination (REUSED WHERE) ----
+    # ---- Sold list + pagination ----
     page = max(int(request.args.get("page", 1) or 1), 1)
     per_page = 50
     offset = (page - 1) * per_page
-
     sales_today = db.db_all(
         f"""
         SELECT s.id, s.item_id, i.name, s.qty, s.sell_price, s.profit, s.sold_at
@@ -823,8 +772,6 @@ def index():
         """,
         {**params, "limit": per_page, "offset": offset}
     )
-
-    # ---- ORIN ADD: total count & pages ----
     total_count = db.db_one(
         f"""
         SELECT COUNT(*)
@@ -837,9 +784,13 @@ def index():
     total_pages = max((total_count + per_page - 1) // per_page, 1)
 
     # ---- FX footer ----
-    _base, _rates = _derive_rates_from_usd("USD")
-    usd_to_aed = _rates.get("AED", 0)
-    usd_to_uzs = _rates.get("UZS", 0)
+    try:
+        _base, _rates = _derive_rates_from_usd("USD")
+        usd_to_aed = round(float(_rates.get("AED") or 0), 2)
+        usd_to_uzs = round(float(_rates.get("UZS") or 0))
+    except Exception:
+        usd_to_aed = 3.6725
+        usd_to_uzs = 12600
 
     # ---- Render ----
     ctx = {
@@ -861,15 +812,14 @@ def index():
         "stock_labels": stock_labels,
         "stock_values": stock_values,
         "sales_today": sales_today,
-        "today_revenue": today_revenue,
-        "today_profit": today_profit,
+        "today_revenue": float(today_revenue or 0),
+        "today_profit": float(today_profit or 0),
         "usd_to_aed": usd_to_aed,
         "usd_to_uzs": usd_to_uzs,
         "page": page,
         "total_pages": total_pages,
         "total_count": total_count,
     }
-
     return render_template("index.html", **ctx)
 
 # ➕ Add Item (UPSERT by name)
@@ -1602,4 +1552,4 @@ def admin_logs():
 # Dev entry
 # =========================
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=(ENV=="dev"))
+    app.run(host="127.0.0.1", port=5000, debug=(ENV == "dev"))

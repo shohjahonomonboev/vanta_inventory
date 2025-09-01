@@ -610,28 +610,59 @@
   }, true);
 </script>
 
-<!-- ORIN ADD: drag-to-scroll for Sold Items -->
+<!-- Drag-to-scroll that respects interactive controls -->
 <script>
 (function () {
   const el = document.querySelector('.table-scroll-x[data-drag-scroll]');
   if (!el) return;
-  let isDown = false, startX = 0, scrollStart = 0;
+
+  let dragging = false, startX = 0, startScroll = 0, pid = null;
+  const THRESH = 5; // pixels before we consider it a drag
+
+  const isInteractive = (target) =>
+    !!target.closest('button, input, select, textarea, a, label, summary, [role="button"], [role="link"]');
+
   el.addEventListener('pointerdown', (e) => {
-    isDown = true;
-    el.setPointerCapture(e.pointerId);
+    if (isInteractive(e.target)) return; // don't start drag on controls
+    pid = e.pointerId;
     startX = e.clientX;
-    scrollStart = el.scrollLeft;
+    startScroll = el.scrollLeft;
+    dragging = false; // only after threshold
   });
+
   el.addEventListener('pointermove', (e) => {
-    if (!isDown) return;
+    if (pid == null) return;
     const dx = e.clientX - startX;
-    el.scrollLeft = scrollStart - dx;
+    if (!dragging && Math.abs(dx) >= THRESH) {
+      dragging = true;
+      try { el.setPointerCapture(pid); } catch(_) {}
+    }
+    if (dragging) {
+      el.scrollLeft = startScroll - dx;
+      e.preventDefault(); // avoid text selection while dragging
+    }
   });
-  const end = () => { isDown = false; };
+
+  function end() {
+    if (pid == null) return;
+    try { el.releasePointerCapture(pid); } catch(_) {}
+    pid = null;
+    dragging = false;
+  }
+
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
   el.addEventListener('pointerleave', end);
 })();
 </script>
+
+<script>
+document.querySelectorAll('.table-scroll-x form').forEach(f => {
+  f.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') e.preventDefault();
+  });
+});
+</script>
+
 
 {% endblock %}
