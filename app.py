@@ -441,14 +441,13 @@ def _load_admin_usernames():
         return {u.strip().casefold() for u in raw.split(",") if u.strip()}
     return {"vanta"}  # default: only vanta is admin
 
-ADMIN_ADMINS = _load_admin_usernames()
-
-def is_logged_in():
-    return bool(session.get("logged_in"))
-
-def is_admin_user():
-    return (session.get("user") or "").casefold() in ADMIN_ADMINS
-
+# --- Admin action password / lockout (SINGLE SOURCE OF TRUTH) ---
+ADMIN_ACTION_PASSWORD = (
+    os.getenv("ADMIN_ACTION_PASSWORD")
+    or os.getenv("ORIN_ADMIN_PASSWORD")
+    or os.getenv("ORIN_PASSWORD")
+    or "changeme"  # not empty, so the gate is ON by default
+).strip()
 
 
 ADMIN_USERS = _load_admins()
@@ -623,6 +622,14 @@ def inject_helpers():
         "USER_CURR": get_curr(),
         "CURRENCY": get_curr(),
         "t": lambda key, _lang=None: t(key, lang if _lang is None else _lang),
+    }
+
+@app.context_processor
+def inject_auth_globals():
+    return {
+        "CURRENT_USER": (session.get("user") or ""),
+        "IS_ADMIN": (session.get("user") or "").casefold() in ADMIN_ADMINS,
+        "ADMIN_ADMINS": ADMIN_ADMINS,
     }
 
 # =========================
@@ -1509,6 +1516,18 @@ def __debug_sales():
         "id": r[0], "item_id": r[1], "qty": r[2], "sell_price": float(r[3] or 0),
         "profit": float(r[4] or 0), "sold_at": str(r[5])
     } for r in rows])
+
+@app.get("/__debug/whoami")
+def __debug_whoami():
+    u = (session.get("user") or "")
+    return jsonify({
+        "logged_in": is_logged_in(),
+        "user": u,
+        "is_admin": u.casefold() in ADMIN_ADMINS,
+        "known_users": list(ADMIN_USERS.keys()),
+        "admins": list(ADMIN_ADMINS),
+    })
+
 
 @app.post("/__admin/wipe")
 def __admin_wipe():
