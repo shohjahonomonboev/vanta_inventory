@@ -401,18 +401,18 @@ def parse_money(s):
 # =========================
 def _load_admins():
     """
-    Load admins from env:
-      ADMIN_USERS_JSON='{"vanta":"new2025"}'
+    Load users from env:
+      ADMIN_USERS_JSON='{"vanta":"new2025","jasur":"jasur2025"}'
       -or-
-      ADMIN_USERS='vanta:new2025'
-    Fallback includes ONLY vanta:new2025.
+      ADMIN_USERS='vanta:new2025,jasur:jasur2025'
+    Fallback includes BOTH users below.
     Keys stored casefold() for case-insensitive matching.
     """
     raw_json = os.environ.get("ADMIN_USERS_JSON", "").strip()
     if raw_json:
         try:
             data = json.loads(raw_json)
-            return { (k or "").casefold(): str(v) for k, v in data.items() }
+            return {(k or "").casefold(): str(v) for k, v in data.items()}
         except Exception:
             pass
 
@@ -420,12 +420,35 @@ def _load_admins():
     if raw_pairs:
         try:
             pairs = dict(pair.split(":", 1) for pair in raw_pairs.split(","))
-            return { (k or "").casefold(): str(v) for k, v in pairs.items() }
+            return {(k or "").casefold(): str(v) for k, v in pairs.items()}
         except Exception:
             pass
 
-    # 🔒 Fallback: only Vanta, only new2025
-    return {"vanta": "new2025"}
+    # 🔒 Fallback: two users active by default
+    #   - vanta / new2025   (admin by default)
+    #   - jasur / jasur2025 (regular by default)
+    return {"vanta": "new2025", "jasur": "jasur2025"}
+
+ADMIN_USERS = _load_admins()
+
+def _load_admin_usernames():
+    """
+    ADMIN_ADMINS="vanta,otheruser"
+    If unset, default to only 'vanta' as admin.
+    """
+    raw = os.environ.get("ADMIN_ADMINS", "").strip()
+    if raw:
+        return {u.strip().casefold() for u in raw.split(",") if u.strip()}
+    return {"vanta"}  # default: only vanta is admin
+
+ADMIN_ADMINS = _load_admin_usernames()
+
+def is_logged_in():
+    return bool(session.get("logged_in"))
+
+def is_admin_user():
+    return (session.get("user") or "").casefold() in ADMIN_ADMINS
+
 
 
 ADMIN_USERS = _load_admins()
